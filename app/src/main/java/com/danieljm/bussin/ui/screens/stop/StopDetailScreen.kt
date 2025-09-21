@@ -2,9 +2,11 @@ package com.danieljm.bussin.ui.screens.stop
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.util.Log
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
@@ -13,6 +15,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -38,6 +42,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.danieljm.bussin.domain.model.Stop
 import com.danieljm.bussin.ui.components.map.MapViewModel
 import com.danieljm.bussin.ui.components.map.OpenStreetMap
+import com.danieljm.bussin.ui.components.stopdetails.BusCard
 import com.danieljm.bussin.ui.screens.stopdetails.StopDetailsViewModel
 import com.danieljm.bussin.ui.theme.TransparentSystemBars
 import com.danieljm.delijn.ui.components.stops.BottomSheet
@@ -165,21 +170,77 @@ fun StopDetailScreen(
                                 4.dp
                             )
                     )
-                    Text(
-                        text = "ID: $headerId",
-                        color = Color.White.copy(0.8f),
-                        fontSize = 14.sp,
-                        modifier = Modifier.fillMaxWidth(),
-                        textAlign = TextAlign.Start
-                    )
+                    Row() {
+                        Text(
+                            text = "ID: $headerId",
+                            color = Color.White.copy(0.8f),
+                            fontSize = 14.sp,
+                            modifier = Modifier.fillMaxWidth(),
+                            textAlign = TextAlign.Start
+                        )
+                    }
                 }
             },
             bodyContent = { _listState, _bottomContentPadding ->
-                // Intentionally empty body for detail screen. The sheet header communicates identity.
+                // Debug log to help trace UI updates
+                LaunchedEffect(ui.arrivals) {
+                    Log.d("StopDetailScreen", "UI arrivals count=${ui.arrivals.size}, loading=${ui.arrivalsLoading}, error=${ui.arrivalsError}")
+                }
+
+                when {
+                    ui.arrivalsLoading -> {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(text = "Loading arrivals...", color = Color.White.copy(alpha = 0.8f))
+                        }
+                    }
+                    ui.arrivalsError != null -> {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(text = "Error: ${ui.arrivalsError}", color = Color.White.copy(alpha = 0.8f))
+                        }
+                    }
+                    ui.arrivals.isEmpty() -> {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            // If no arrivals, show raw JSON debug data when available
+                            val raw = ui.arrivalsRawJson
+                            if (!raw.isNullOrEmpty()) {
+                                Text(text = raw, color = Color.White.copy(alpha = 0.7f))
+                            } else {
+                                Text(text = "No upcoming arrivals for today.", color = Color.White.copy(alpha = 0.7f))
+                            }
+                        }
+                    }
+                    else -> {
+                        LazyColumn(
+                            state = _listState,
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                            contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = _bottomContentPadding)
+                        ) {
+                            items(ui.arrivals, key = { it.doorkomstId ?: (it.ritnummer ?: it.vrtnum ?: it.lijnnummer ?: "-") }) { arrival ->
+                                BusCard(arrival = arrival)
+                            }
+                        }
+                    }
+                }
             },
-            expanded = false,
-            highlightedStopId = selectedStop?.id
-        )
+            // In the stop detail screen we want the sheet expanded so arrivals are visible immediately.
+            expanded = true,
+             highlightedStopId = selectedStop?.id
+         )
 
         SnackbarHost(
             hostState = snackbarHostState,

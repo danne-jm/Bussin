@@ -465,7 +465,7 @@ interface BussinApiService {
     ): Response<ResponseBody>
 
     /*
-    used localhost:3000/bussin/delijn/stops/310025/final-schedule?datum=2025-09-21, ALWAYS PROVIDE A DATUM else endpoint returns nothing.
+    used localhost:3000/bussin/delijn/stops/310025/final-schedule?datum=2025-09-22&maxAantalDoorkomsten=100, ALWAYS PROVIDE A DATUM else endpoint returns nothing.
     {
     "halteDoorkomsten": [
         {
@@ -646,6 +646,27 @@ interface BussinApiService {
                     "plaatsBestemming": "Kraainem Metro",
                     "vias": [],
                     "dienstregelingTijdstip": "2025-09-21T22:59:00"
+                },
+                {
+                    "doorkomstId": "2025-09-21_3092_65_48_310025",
+                    "entiteitnummer": "3",
+                    "lijnnummer": 92,
+                    "richting": "TERUG",
+                    "ritnummer": "65",
+                    "bestemming": "Kraainem Metro",
+                    "plaatsBestemming": "Kraainem Metro",
+                    "vias": [],
+                    "dienstregelingTijdstip": "2025-09-21T22:59:00",
+                    "realtime": [
+                        {
+                            "dienstregelingTijdstip": "2025-09-21T22:59:00",
+                            "real-timeTijdstip": "2025-09-21T23:00:45",
+                            "vrtnum": "45090",
+                            "predictionStatussen": [
+                                "REALTIME"
+                            ]
+                        }
+                    ]
                 }
             ]
         }

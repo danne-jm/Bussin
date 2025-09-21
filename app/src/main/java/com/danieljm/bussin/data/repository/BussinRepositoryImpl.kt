@@ -262,6 +262,14 @@ class BussinRepositoryImpl @Inject constructor(
                     val body = resp.body()?.string() ?: ""
                     val adapter = moshi.adapter(FinalScheduleResponseDto::class.java)
                     val dto = try { adapter.fromJson(body) } catch (_: Exception) { null }
+
+                    // Debug log: report how many halteDoorkomsten and total doorkomsten were parsed
+                    try {
+                        val halteCount = dto?.halteDoorkomsten?.size ?: 0
+                        val doorkomstenCount = dto?.halteDoorkomsten?.sumOf { it.doorkomsten?.size ?: 0 } ?: 0
+                        Log.d("BussinRepo", "Parsed final-schedule: halteDoorkomsten=$halteCount, totalDoorkomsten=$doorkomstenCount")
+                    } catch (_: Throwable) {}
+
                     val final = dto?.let { FinalScheduleMapper.fromDto(it) }
                     if (final != null) {
                         Result.success(final)
@@ -335,3 +343,4 @@ class BussinRepositoryImpl @Inject constructor(
         }
     }
 }
+

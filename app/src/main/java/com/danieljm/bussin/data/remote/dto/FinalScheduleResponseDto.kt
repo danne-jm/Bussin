@@ -5,6 +5,8 @@ import com.squareup.moshi.JsonClass
 
 @JsonClass(generateAdapter = true)
 data class FinalScheduleResponseDto(
+    @param:Json(name = "lines")
+    val lines: List<LineDto>? = null,
     @param:Json(name = "halteDoorkomsten")
     val halteDoorkomsten: List<HalteDoorkomstenDto>? = null,
     @param:Json(name = "doorkomstNotas")
