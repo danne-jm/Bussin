@@ -57,7 +57,7 @@ import kotlinx.coroutines.launch
 fun StopScreen(
     modifier: Modifier = Modifier,
     stopViewModel: StopViewModel = hiltViewModel(),
-    onStopSelected: (String) -> Unit = {},
+    onStopClick: (String) -> Unit = {},
 ) {
     val state by stopViewModel.uiState.collectAsState()
 
@@ -274,14 +274,8 @@ fun StopScreen(
                 userLocation = userLocation,
                 stops = state.stops,
                 onStopClick = { stop ->
-                    // When user taps a map marker, expand the sheet, highlight the card, and scroll to it
-                    try {
-                        bottomSheetExpanded.value = true
-                        highlightedStopId.value = stop.id
-
-                    } catch (_: Throwable) {}
-                    // Also notify external handler
-                    onStopSelected(stop.id)
+                    // Navigate directly to stop details instead of highlighting in bottom sheet
+                    onStopClick(stop.id)
                 },
                 recenterTrigger = recenterTrigger.value,
                 onMapCenterChanged = { lat, lon ->
@@ -373,7 +367,7 @@ fun StopScreen(
                         try { delay(1500) } catch (_: Throwable) {}
                         highlightedStopId.value = null
                     }
-                    onStopSelected(stop.id)
+                    onStopClick(stop.id)
                 },
                 onRefresh = {
                     // When user taps refresh in the sheet header, run the same logic and animate

@@ -53,6 +53,9 @@ dependencies {
     implementation(libs.androidx.material3)
     implementation(libs.play.services.location)
 
+    // Navigation Compose
+    implementation("androidx.navigation:navigation-compose:2.7.3")
+
     // Lifecycle ViewModel Compose helpers
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.6.2")
 

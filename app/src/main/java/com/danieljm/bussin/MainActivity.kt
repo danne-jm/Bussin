@@ -5,11 +5,8 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.Scaffold
-import androidx.compose.ui.Modifier
 import androidx.core.view.WindowCompat
-import com.danieljm.bussin.ui.screens.stop.StopScreen
+import com.danieljm.bussin.ui.navigation.BussinNavHost
 import com.danieljm.bussin.ui.theme.BussinTheme
 import dagger.hilt.android.AndroidEntryPoint
 
@@ -26,15 +23,7 @@ class MainActivity : ComponentActivity() {
         try { window.setBackgroundDrawableResource(android.R.color.transparent) } catch (_: Throwable) {}
         setContent {
             BussinTheme {
-                // Accept the scaffold content padding as an intentionally unused parameter
-                // (underscore) so we don't apply it to StopScreen — StopScreen manages its own
-                // overlays and full-bleed map rendering.
-                Scaffold(modifier = Modifier.fillMaxSize()) { paddingValues ->
-                    // Intentionally not applying paddingValues to StopScreen so the map can be
-                    // full-bleed; consume it here so the compiler/linter considers it used.
-                    paddingValues.hashCode()
-                    StopScreen()
-                }
+                BussinNavHost()
             }
         }
     }
