@@ -15,6 +15,7 @@ import com.danieljm.bussin.data.remote.api.BussinApiService
 import com.danieljm.bussin.data.remote.dto.ArrivalsResponseDto
 import com.danieljm.bussin.data.remote.dto.FinalScheduleResponseDto
 import com.danieljm.bussin.data.remote.dto.HalteDto
+import com.danieljm.bussin.data.remote.dto.LineDirectionDto
 import com.danieljm.bussin.data.remote.dto.LineSearchResponseDto
 import com.danieljm.bussin.data.remote.dto.LineStopsResponseDto
 import com.danieljm.bussin.data.remote.dto.NearbyStopsResponseDto
@@ -241,7 +242,8 @@ class BussinRepositoryImpl @Inject constructor(
                     val adapter = moshi.adapter(ArrivalsResponseDto::class.java)
                     val dto = try { adapter.fromJson(body) } catch (_: Exception) { null }
                     val halteList = dto?.halteDoorkomsten ?: emptyList()
-                    val arrivals = halteList.flatMap { hd -> hd.doorkomsten?.map { ArrivalsMapper.fromDoorkomst(it) } ?: emptyList() }
+                    // Pass dto.lines to mapper so line metadata is attached to each arrival
+                    val arrivals = halteList.flatMap { hd -> hd.doorkomsten?.map { ArrivalsMapper.fromDoorkomst(it, dto?.lines) } ?: emptyList() }
                     Result.success(arrivals)
                 } else {
                     Result.failure(HttpException(resp))
@@ -267,15 +269,41 @@ class BussinRepositoryImpl @Inject constructor(
                     try {
                         val halteCount = dto?.halteDoorkomsten?.size ?: 0
                         val doorkomstenCount = dto?.halteDoorkomsten?.sumOf { it.doorkomsten?.size ?: 0 } ?: 0
-                        Log.d("BussinRepo", "Parsed final-schedule: halteDoorkomsten=$halteCount, totalDoorkomsten=$doorkomstenCount")
+                        Log.d("BussinRepo", "Parsed final-schedule: halteDoorkomsten=$halteCount, totalDoorkomsten=$doorkomstenCount, full_json_content length=${body}")
                     } catch (_: Throwable) {}
 
-                    val final = dto?.let { FinalScheduleMapper.fromDto(it) }
-                    if (final != null) {
-                        Result.success(final)
-                    } else {
-                        Result.failure(Exception("Failed to parse final schedule"))
+                    // If the server didn't return line metadata, try the stop-specific lines endpoint as a fallback
+                    var enrichedDto = dto
+                    try {
+                        if (dto != null && (dto.lines == null || dto.lines.isEmpty())) {
+                            Log.d("BussinRepo", "final-schedule.lines empty for stop=$stop, fetching stop lines as fallback")
+                            val linesResp = api.getStopLines(stop)
+                            if (linesResp.isSuccessful) {
+                                val linesBody = linesResp.body()?.string() ?: ""
+                                val lineDirectionResponse = try {
+                                    val type = Types.newParameterizedType(Map::class.java, String::class.java, Types.newParameterizedType(List::class.java, LineDirectionDto::class.java))
+                                    val adapter = moshi.adapter<Map<String, List<LineDirectionDto>>>(type)
+                                    adapter.fromJson(linesBody)
+                                } catch (e: Exception) {
+                                    null
+                                }
+
+                                val lineDirections = lineDirectionResponse?.get("lijnrichtingen") as? List<com.danieljm.bussin.data.remote.dto.LineDirectionDto>
+                                if (!lineDirections.isNullOrEmpty()) {
+                                    val lines = lineDirections.map { com.danieljm.bussin.data.mapper.LineDirectionMapper.toLineDto(it) }
+                                    enrichedDto = dto.copy(lines = lines)
+                                    Log.d("BussinRepo", "Enriched final-schedule with ${lines.size} lines from stop-lines endpoint")
+                                } else {
+                                    Log.w("BussinRepo", "Stop lines response did not contain valid line directions for stop=$stop")
+                                }
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.e("BussinRepo", "Error enriching final-schedule with stop-lines: ${e.message}", e)
                     }
+
+                    val schedule = if (enrichedDto != null) FinalScheduleMapper.fromDto(enrichedDto) else FinalSchedule(emptyList())
+                    Result.success(schedule)
                 } else {
                     Result.failure(HttpException(resp))
                 }
@@ -343,4 +371,3 @@ class BussinRepositoryImpl @Inject constructor(
         }
     }
 }
-

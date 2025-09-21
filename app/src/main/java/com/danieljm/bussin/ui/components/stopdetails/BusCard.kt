@@ -118,7 +118,7 @@ fun BusCard(arrival: Arrival, modifier: Modifier = Modifier) {
                         )
                         Spacer(modifier = Modifier.size(6.dp))
                         Text(
-                            text = if (realtimeAvailable) (arrival.vrtnum ?: "-") else "sched",
+                            text = if (realtimeAvailable) (arrival.vrtnum ?: "-") else "",
                             color = Color.White,
                             fontWeight = FontWeight.Bold,
                             fontSize = 14.sp
@@ -154,7 +154,7 @@ fun BusCard(arrival: Arrival, modifier: Modifier = Modifier) {
                         )
                     } else {
                         Text(
-                            text = "schedule",
+                            text = "scheduled",
                             color = Color.LightGray,
                             fontSize = 12.sp
                         )

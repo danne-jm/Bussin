@@ -15,5 +15,18 @@ object LineDirectionMapper {
             kleurVoorGrondRand = dto.kleurVoorGrondRand
         )
     }
-}
 
+    fun toLineDto(dto: com.danieljm.bussin.data.remote.dto.LineDirectionDto): com.danieljm.bussin.data.remote.dto.LineDto {
+        return com.danieljm.bussin.data.remote.dto.LineDto(
+            lijnnummer = dto.lijnnummer,
+            entiteitnummer = dto.entiteitnummer,
+            richting = dto.richting,
+            lijnNummerPubliek = dto.lijnNummerPubliek,
+            omschrijving = dto.omschrijving,
+            kleurVoorGrond = dto.kleurVoorGrond,
+            kleurAchterGrond = dto.kleurAchterGrond,
+            kleurAchterGrondRand = dto.kleurAchterGrondRand,
+            kleurVoorGrondRand = dto.kleurVoorGrondRand
+        )
+    }
+}

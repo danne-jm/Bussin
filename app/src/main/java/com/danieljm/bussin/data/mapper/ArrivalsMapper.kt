@@ -1,5 +1,6 @@
 package com.danieljm.bussin.data.mapper
 
+import android.util.Log
 import com.danieljm.bussin.data.remote.dto.DoorkomstDto
 import com.danieljm.bussin.data.remote.dto.HalteDoorkomstenDto
 import com.danieljm.bussin.data.remote.dto.LineDto
@@ -58,16 +59,40 @@ object ArrivalsMapper {
         }
     }
 
-    // Map of key -> LineDto, key may be entiteitnummer or lijnnummer string
-    private fun buildLinesMap(lines: List<LineDto>?): Map<String, LineDto> {
-        if (lines == null) return emptyMap()
-        val m = mutableMapOf<String, LineDto>()
-        for (l in lines) {
-            l.entiteitnummer?.let { m[it] = l }
-            l.lijnnummer?.let { m[it.toString()] = l }
-            l.lijnNummerPubliek?.let { m[it] = l }
+    // Normalize a lijnnummer value coming from DTO (Any? or String) into a canonical string key
+    private fun normalizeLijnnummer(value: Any?): String? {
+        if (value == null) return null
+        return when (value) {
+            is Number -> value.toInt().toString()
+            is String -> {
+                val trimmed = value.trim()
+                // If it is a numeric string containing decimal .0, normalize
+                if (trimmed.matches(Regex("^\\d+\\.0$"))) {
+                    trimmed.substringBefore('.')
+                } else trimmed
+            }
+            else -> value.toString().trim().let { s ->
+                if (s.matches(Regex("^\\d+\\.0$"))) s.substringBefore('.') else s
+            }
         }
-        return m
+    }
+
+    // Build helper maps for robust matching: byLijnnummer, byEntiteitnummer(list), byPubliek
+    private fun buildLineIndexes(lines: List<LineDto>?): Triple<Map<String, LineDto>, Map<String, List<LineDto>>, Map<String, LineDto>> {
+        val byLijn = mutableMapOf<String, LineDto>()
+        val byEntiteit = mutableMapOf<String, MutableList<LineDto>>()
+        val byPubliek = mutableMapOf<String, LineDto>()
+        if (lines == null) return Triple(byLijn, byEntiteit, byPubliek)
+        for (l in lines) {
+            val norm = normalizeLijnnummer(l.lijnnummer)
+            if (!norm.isNullOrBlank()) byLijn[norm] = l
+            l.entiteitnummer?.let { id ->
+                val list = byEntiteit.getOrPut(id) { mutableListOf() }
+                list.add(l)
+            }
+            l.lijnNummerPubliek?.let { byPubliek[it] = l }
+        }
+        return Triple(byLijn, byEntiteit, byPubliek)
     }
 
     fun fromDoorkomst(dto: DoorkomstDto, lines: List<LineDto>? = null): Arrival {
@@ -76,9 +101,87 @@ object ArrivalsMapper {
         val vrt = nestedRealtime?.vrtnum ?: dto.vrtnum
         val preds = nestedRealtime?.predictionStatussen ?: dto.predictionStatussen ?: emptyList()
 
-        val linesMap = buildLinesMap(lines)
-        // Find matching line metadata by entiteitnummer first, then by lijnnummer string
-        val lineMeta = dto.entiteitnummer?.let { linesMap[it] } ?: dto.lijnnummer?.toString()?.let { linesMap[it] }
+        val (byLijn, byEntiteit, byPubliek) = buildLineIndexes(lines)
+
+        // Prefer matching by normalized lijnnummer if present (handles numeric vs string mismatch)
+        var lineMeta: LineDto? = null
+        val dtoLijnStr = normalizeLijnnummer(dto.lijnnummer)
+        val dtoEntiteitStr = dto.entiteitnummer
+        val dtoRichtingStr = dto.richting
+
+        if (!dtoLijnStr.isNullOrBlank() && !dtoEntiteitStr.isNullOrBlank()) {
+            // First, try to find a line that matches on lijnnummer, entiteitnummer, and richting
+            lineMeta = lines?.firstOrNull { line ->
+                normalizeLijnnummer(line.lijnnummer) == dtoLijnStr &&
+                        line.entiteitnummer == dtoEntiteitStr &&
+                        (dtoRichtingStr.isNullOrBlank() || line.richting.isNullOrBlank() || line.richting.equals(dtoRichtingStr, ignoreCase = true))
+            }
+
+            // If no match with richting, try without it, but only if there's a unique result
+            if (lineMeta == null) {
+                val candidates = lines?.filter { line ->
+                    normalizeLijnnummer(line.lijnnummer) == dtoLijnStr &&
+                            line.entiteitnummer == dtoEntiteitStr
+                }
+                if (candidates?.size == 1) {
+                    lineMeta = candidates.first()
+                }
+            }
+        }
+
+        // If not found, try to match by entiteitnummer only when unique
+        if (lineMeta == null && !dto.entiteitnummer.isNullOrBlank()) {
+            val list = byEntiteit[dto.entiteitnummer]
+            if (list != null && list.size == 1) {
+                lineMeta = list[0]
+            }
+        }
+
+        // As a last resort, try matching by public label using dtoLijnStr
+        if (lineMeta == null && !dtoLijnStr.isNullOrBlank()) {
+            lineMeta = byPubliek[dtoLijnStr]
+        }
+
+        // If still not found, but entiteit maps to multiple candidates, prefer one matching richting
+        if (lineMeta == null && !dto.entiteitnummer.isNullOrBlank()) {
+            val candidates = byEntiteit[dto.entiteitnummer]
+            if (!candidates.isNullOrEmpty()) {
+                val matchByRichting = candidates.firstOrNull { c ->
+                    // Match by richting if available
+                    !dto.richting.isNullOrBlank() && !c.richting.isNullOrBlank() && c.richting.equals(dto.richting, ignoreCase = true)
+                }
+                if (matchByRichting != null) {
+                    lineMeta = matchByRichting
+                } else {
+                    // Fall back to matching by normalized lijnnummer or public label among candidates
+                    val match = candidates.firstOrNull { c ->
+                        val cLijnNorm = normalizeLijnnummer(c.lijnnummer)
+                        (dtoLijnStr != null && cLijnNorm == dtoLijnStr) || (c.lijnNummerPubliek == dtoLijnStr)
+                    }
+                    if (match != null) lineMeta = match
+                }
+            }
+        }
+
+        // Final fallback: try to match public label that contains the numeric lijn (e.g. 'R92' contains '92')
+        if (lineMeta == null && !dtoLijnStr.isNullOrBlank()) {
+            val candidate = byPubliek.values.firstOrNull { pub ->
+                try {
+                    val label = pub.lijnNummerPubliek ?: return@firstOrNull false
+                    // match case-insensitive, allow labels like 'R92' or '92-R'
+                    label.endsWith(dtoLijnStr, ignoreCase = true) || label.contains(dtoLijnStr)
+                } catch (_: Exception) { false }
+            }
+            if (candidate != null) {
+                lineMeta = candidate
+                try { Log.d("ArrivalsMapper", "Fallback matched public label ${'$'}{candidate.lijnNummerPubliek} for doorkomst ${'$'}{dto.doorkomstId}") } catch (_: Exception) {}
+            }
+        }
+
+        // Debug logging to help trace matching issues
+        try {
+            Log.d("ArrivalsMapper", "doorkomstId=${dto.doorkomstId} lijnnummer=${dto.lijnnummer} entiteit=${dto.entiteitnummer} normalizedLijn=$dtoLijnStr matched=${lineMeta?.lijnNummerPubliek}")
+        } catch (_: Exception) { }
 
         val scheduledMillis = parseIsoToMillis(dto.dienstregelingTijdstip)
         val realMillis = parseIsoToMillis(realTimeStr)
