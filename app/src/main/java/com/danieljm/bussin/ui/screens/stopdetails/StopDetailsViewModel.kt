@@ -56,7 +56,8 @@ class StopDetailsViewModel @Inject constructor(
                 arrivalsLoading = true,
                 arrivals = cur.arrivals,
                 arrivalsError = null,
-                arrivalsRawJson = null
+                arrivalsRawJson = null,
+                noHalteDoorkomsten = false
             )
             try {
                 val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.US)
@@ -73,6 +74,9 @@ class StopDetailsViewModel @Inject constructor(
                 if (res.isSuccess) {
                     val final = res.getOrNull()
                     val arrivals: List<Arrival> = final?.halteDoorkomsten?.flatMap { it.doorkomsten } ?: emptyList()
+
+                    // Determine whether the final schedule explicitly had no halteDoorkomsten
+                    val noHalte = final?.halteDoorkomsten.isNullOrEmpty()
 
                     // Sort arrivals by effective epoch time (prefer realArrivalMillis, then expectedArrivalMillis)
                     val sorted = arrivals.sortedWith(compareBy { a ->
@@ -92,7 +96,8 @@ class StopDetailsViewModel @Inject constructor(
                         arrivalsLoading = false,
                         arrivals = sorted,
                         arrivalsError = cur3.arrivalsError,
-                        arrivalsRawJson = cur3.arrivalsRawJson
+                        arrivalsRawJson = cur3.arrivalsRawJson,
+                        noHalteDoorkomsten = noHalte
                     )
                 } else {
                     val err = res.exceptionOrNull()?.localizedMessage ?: "Failed to load arrivals"
@@ -105,7 +110,8 @@ class StopDetailsViewModel @Inject constructor(
                         arrivalsLoading = false,
                         arrivals = emptyList(),
                         arrivalsError = err,
-                        arrivalsRawJson = cur4.arrivalsRawJson
+                        arrivalsRawJson = cur4.arrivalsRawJson,
+                        noHalteDoorkomsten = false
                     )
                 }
             } catch (e: Throwable) {
@@ -118,7 +124,8 @@ class StopDetailsViewModel @Inject constructor(
                     arrivalsLoading = false,
                     arrivals = emptyList(),
                     arrivalsError = e.localizedMessage ?: "Unknown error",
-                    arrivalsRawJson = cur5.arrivalsRawJson
+                    arrivalsRawJson = cur5.arrivalsRawJson,
+                    noHalteDoorkomsten = false
                 )
             }
         }

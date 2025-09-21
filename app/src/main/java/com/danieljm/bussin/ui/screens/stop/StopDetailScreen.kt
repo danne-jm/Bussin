@@ -3,6 +3,7 @@ package com.danieljm.bussin.ui.screens.stop
 import android.Manifest
 import android.content.pm.PackageManager
 import android.util.Log
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -33,6 +35,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -71,6 +74,9 @@ fun StopDetailScreen(
     }
 
     val ui by viewModel.uiState.collectAsState()
+
+    // Track bottom sheet animated height so we can hide large imagery when the sheet is collapsed
+    var sheetHeightDp by remember { mutableStateOf(0.dp) }
 
     val ctx = LocalContext.current
 
@@ -209,18 +215,46 @@ fun StopDetailScreen(
                         }
                     }
                     ui.arrivals.isEmpty() -> {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(16.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            // If no arrivals, show raw JSON debug data when available
-                            val raw = ui.arrivalsRawJson
-                            if (!raw.isNullOrEmpty()) {
-                                Text(text = raw, color = Color.White.copy(alpha = 0.7f))
-                            } else {
-                                Text(text = "No upcoming arrivals for today.", color = Color.White.copy(alpha = 0.7f))
+                        // If the final schedule explicitly had no halteDoorkomsten, show friendly drawable
+                        // Ensure the image isn't scaled when the sheet collapses: put it inside a LazyColumn
+                        // item with fixed height so the sheet's viewport will clip it out of view instead
+                        // of compressing it.
+                        if (ui.noHalteDoorkomsten) {
+                            LazyColumn(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalArrangement = Arrangement.Center,
+                                state = _listState,
+                                contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = _bottomContentPadding)
+                            ) {
+                                item {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(240.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Image(
+                                            painter = painterResource(id = com.danieljm.bussin.R.drawable.sleeping_bus),
+                                            contentDescription = "No arrivals",
+                                            modifier = Modifier.size(160.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        } else {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(16.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                // If no arrivals, show raw JSON debug data when available
+                                val raw = ui.arrivalsRawJson
+                                if (!raw.isNullOrEmpty()) {
+                                    Text(text = raw, color = Color.White.copy(alpha = 0.7f))
+                                } else {
+                                    Text(text = "No upcoming arrivals for today.", color = Color.White.copy(alpha = 0.7f))
+                                }
                             }
                         }
                     }
@@ -239,7 +273,9 @@ fun StopDetailScreen(
             },
             // In the stop detail screen we want the sheet expanded so arrivals are visible immediately.
             expanded = true,
-             highlightedStopId = selectedStop?.id
+             highlightedStopId = selectedStop?.id,
+            // Track sheet height so callers can react (we'll hide large imagery when small)
+            onHeightChanged = { sheetHeightDp = it }
          )
 
         SnackbarHost(

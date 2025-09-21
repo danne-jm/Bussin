@@ -19,4 +19,8 @@ data class StopDetailsUiState(
 
     // For debugging: raw JSON response from final-schedule endpoint
     val arrivalsRawJson: String? = null,
+
+    // If the final-schedule response contained no halteDoorkomsten (i.e. no lines coming)
+    // show a friendly drawable in the bottom sheet instead of printing raw JSON.
+    val noHalteDoorkomsten: Boolean = false,
 )
