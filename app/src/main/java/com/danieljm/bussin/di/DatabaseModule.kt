@@ -3,8 +3,8 @@ package com.danieljm.bussin.di
 import android.content.Context
 import androidx.room.Room
 import com.danieljm.bussin.data.local.AppDatabase
-import com.danieljm.bussin.data.local.dao.StopDao
 import com.danieljm.bussin.data.local.dao.LineStopDao
+import com.danieljm.bussin.data.local.dao.StopDao
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn

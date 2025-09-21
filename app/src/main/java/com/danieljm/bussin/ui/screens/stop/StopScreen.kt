@@ -61,7 +61,7 @@ import kotlinx.coroutines.launch
 fun StopScreen(
     modifier: Modifier = Modifier,
     stopViewModel: StopViewModel = hiltViewModel(),
-    onStopClick: (String) -> Unit = {},
+    onStopClick: (String, String?) -> Unit = { _, _ -> },
 ) {
     // Configure transparent system bars so the map can render underneath
     TransparentSystemBars()
@@ -265,7 +265,7 @@ fun StopScreen(
             stops = state.stops,
             onStopClick = { stop ->
                 // Navigate directly to stop details instead of highlighting in bottom sheet
-                onStopClick(stop.id)
+                onStopClick(stop.id, stop.name)
             },
             recenterTrigger = recenterTrigger.value,
             onMapCenterChanged = { lat, lon ->

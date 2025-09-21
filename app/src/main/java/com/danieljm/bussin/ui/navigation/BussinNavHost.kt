@@ -16,6 +16,7 @@ import com.danieljm.bussin.ui.screens.more.MoreScreen
 import com.danieljm.bussin.ui.screens.plan.PlanScreen
 import com.danieljm.bussin.ui.screens.stop.StopScreen
 import com.danieljm.bussin.ui.screens.stopdetails.StopDetailsScreen
+import java.net.URLDecoder
 
 @Composable
 fun BussinNavHost(
@@ -27,12 +28,19 @@ fun BussinNavHost(
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         bottomBar = {
-            // Only show bottom navigation on main screens, not on detail screens
-            // Check if current route contains the stop_details pattern
-            val isStopDetailsScreen = currentRoute?.contains("stop_details") == true
-            if (!isStopDetailsScreen) {
+            // Show bottom navigation on main app screens and also on stop details so the detail
+            // screen keeps the same bottom nav as the Stops screen and the sheet appears above it.
+            val isMainScreen = currentRoute == NavRoutes.HOME || currentRoute == NavRoutes.STOPS || currentRoute == NavRoutes.PLAN || currentRoute == NavRoutes.MORE || (currentRoute?.contains(NavRoutes.STOP_DETAILS) == true)
+            if (isMainScreen) {
+                // For stop details screen, treat it as if we're on the stops screen for navigation highlighting
+                val effectiveRoute = if (currentRoute?.contains(NavRoutes.STOP_DETAILS) == true) {
+                    NavRoutes.STOPS
+                } else {
+                    currentRoute
+                }
+
                 CustomBottomNavBar(
-                    currentRoute = currentRoute,
+                    currentRoute = effectiveRoute,
                     onItemClick = { route ->
                         navController.navigate(route) {
                             // Pop up to start destination and save state
@@ -64,9 +72,10 @@ fun BussinNavHost(
 
             composable(NavRoutes.STOPS) {
                 StopScreen(
-                    onStopClick = { stopId ->
-                        // Navigate to stop details when a stop marker is pressed
-                        navController.navigate("${NavRoutes.STOP_DETAILS}/$stopId")
+                    onStopClick = { stopId, _stopName ->
+                        // Navigate to stop details when a stop marker is pressed, pass both id and encoded name
+                        val encodedName = java.net.URLEncoder.encode(_stopName ?: "", "UTF-8")
+                        navController.navigate("${NavRoutes.STOP_DETAILS}/$stopId/$encodedName")
                     }
                 )
             }
@@ -87,13 +96,16 @@ fun BussinNavHost(
                 )
             }
 
-            composable("${NavRoutes.STOP_DETAILS}/{stopId}") { backStackEntry ->
+            composable("${NavRoutes.STOP_DETAILS}/{stopId}/{stopName}") { backStackEntry ->
                 val stopId = backStackEntry.arguments?.getString("stopId") ?: ""
+                val rawName = backStackEntry.arguments?.getString("stopName") ?: ""
+                val stopName = try { URLDecoder.decode(rawName, "UTF-8") } catch (_: Throwable) { rawName }
                 StopDetailsScreen(
                     stopId = stopId,
                     onBack = {
                         navController.popBackStack()
-                    }
+                    },
+                    stopName = stopName
                 )
             }
         }
