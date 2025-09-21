@@ -98,10 +98,6 @@ fun StopScreen(
     // instruct the list to scroll to a specific stop card.
     val listState = rememberLazyListState()
 
-    // Request object to tell BottomSheet to scroll to a specific stop id. We keep
-    // it separate from `centerRequestedStop` which is used to ask the map to center.
-    val scrollRequestStopId = remember { mutableStateOf<String?>(null) }
-
     // Track expanded state and highlighted stop id for the BottomSheet
     val bottomSheetExpanded = remember { mutableStateOf(false) }
     val highlightedStopId = remember { mutableStateOf<String?>(null) }
@@ -283,21 +279,6 @@ fun StopScreen(
                         bottomSheetExpanded.value = true
                         highlightedStopId.value = stop.id
 
-                        // Mark a short window where map-center triggered fetches will be ignored so
-                        // the BottomSheet list doesn't immediately get replaced by a new nearby-stops fetch
-                        // while we're trying to scroll to a specific item.
-                        val suppressWindowMs = 600L
-                        ignoreCenterFetchUntilMs.value = System.currentTimeMillis() + suppressWindowMs
-
-                        // Request the BottomSheet to scroll to the stop ID. BottomSheet will
-                        // compute the index using its own sorted list and perform the scroll.
-                        scrollRequestStopId.value = stop.id
-                        lastManualScrollMs.value = System.currentTimeMillis()
-
-                        // clear highlight after a short pulse
-                        coroutineScope.launch {
-                            highlightedStopId.value = null
-                        }
                     } catch (_: Throwable) {}
                     // Also notify external handler
                     onStopSelected(stop.id)
@@ -305,10 +286,6 @@ fun StopScreen(
                 recenterTrigger = recenterTrigger.value,
                 onMapCenterChanged = { lat, lon ->
                     val now = System.currentTimeMillis()
-
-                    // Respect suppression window set when user tapped a marker: skip fetches that were
-                    // caused by the tap-centering animation so we don't overwrite the sheet's list.
-                    if (now < ignoreCenterFetchUntilMs.value) return@OpenStreetMap
 
                     val cachedCooldownMs = 500L
                     val networkCooldownMs = 2_000L
@@ -387,9 +364,6 @@ fun StopScreen(
                 stops = sortedDisplayedStopsFinal,
                 userLat = userLocation?.latitude,
                 userLon = userLocation?.longitude,
-                // Ask the BottomSheet to scroll to a stop id when set by the map marker tap.
-                scrollToStopId = scrollRequestStopId.value,
-                onScrollHandled = { scrollRequestStopId.value = null },
                 onStopClick = { stop ->
                     // Request the map to center on this stop, expand sheet (already visible) and highlight
                     centerRequestedStop.value = stop
