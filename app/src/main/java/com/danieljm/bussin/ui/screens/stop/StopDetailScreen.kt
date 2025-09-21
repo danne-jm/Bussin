@@ -96,6 +96,17 @@ fun StopDetailScreen(
     // The stop to display on the map / header
     val selectedStop: Stop? = ui.selectedStop
 
+    // pendingCenterStop is used to request a one-time center-on-stop from the map.
+    // OpenStreetMap will call onCenterHandled when it has animated to the stop, at
+    // which point we clear this state so the map won't keep forcing the center.
+    var pendingCenterStop by remember { mutableStateOf<Stop?>(selectedStop) }
+
+    // Update the pending center when the selected stop changes (e.g. initial load or navigation)
+    LaunchedEffect(selectedStop?.id) {
+        // Only set if we actually have a stop to center on
+        if (selectedStop != null) pendingCenterStop = selectedStop
+    }
+
     Box(modifier = modifier.fillMaxSize()) {
         OpenStreetMap(
             modifier = Modifier.fillMaxSize(),
@@ -105,8 +116,10 @@ fun StopDetailScreen(
             recenterTrigger = 0,
             onMapCenterChanged = { _, _ -> /* no-op */ },
             onVisibleStopIdsChanged = { /* no-op */ },
-            centerOnStop = selectedStop,
-            onCenterHandled = { /* no-op */ }
+            // Pass the one-time pending center request instead of always passing selectedStop.
+            centerOnStop = pendingCenterStop,
+            // When the map handled the center request, clear it so we don't re-center again.
+            onCenterHandled = { pendingCenterStop = null },
         )
 
         BottomSheet(
@@ -164,7 +177,7 @@ fun StopDetailScreen(
             bodyContent = { _listState, _bottomContentPadding ->
                 // Intentionally empty body for detail screen. The sheet header communicates identity.
             },
-            expanded = true,
+            expanded = false,
             highlightedStopId = selectedStop?.id
         )
 
