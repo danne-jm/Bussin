@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -276,15 +275,18 @@ fun BottomSheet(
                                 stop = stop,
                                 userLat = userLat,
                                 userLon = userLon,
-                                onClick = { onStopClick(stop) },
+                                onClick = {
+                                    // Request the map to center on this stop, expand sheet (already visible) and highlight
+                                    onStopClick(stop)
+                                },
                                 isHighlighted = highlightedStopId == stop.id,
                             )
                         }
-                        item {
-                            // Keep a small spacer to provide breathing room after the last item - the
-                            // contentPadding ensures it's possible to fully reveal the last entry.
-                            Spacer(modifier = Modifier.height(32.dp))
-                        }
+//                        item {
+//                            // Keep a small spacer to provide breathing room after the last item - the
+//                            // contentPadding ensures it's possible to fully reveal the last entry.
+//                            Spacer(modifier = Modifier.height(32.dp))
+//                        }
                     }
                 }
             }

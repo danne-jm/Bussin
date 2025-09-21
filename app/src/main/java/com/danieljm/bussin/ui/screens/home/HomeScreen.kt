@@ -14,6 +14,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.danieljm.bussin.ui.theme.DarkSystemBars
 
 @Composable
 fun HomeScreen(
@@ -21,6 +22,9 @@ fun HomeScreen(
     viewModel: HomeViewModel = hiltViewModel(),
     onNavigate: (route: String) -> Unit = {}
 ) {
+    // Configure dark system bars for regular screens
+    DarkSystemBars()
+
     val ui by viewModel.uiState.collectAsState()
 
     LaunchedEffect(Unit) {
@@ -41,4 +45,3 @@ fun HomeScreen(
         }
     }
 }
-

@@ -54,7 +54,7 @@ dependencies {
     implementation(libs.play.services.location)
 
     // Navigation Compose
-    implementation("androidx.navigation:navigation-compose:2.7.3")
+    implementation("androidx.navigation:navigation-compose:2.9.4")
 
     // Lifecycle ViewModel Compose helpers
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.6.2")
@@ -91,6 +91,9 @@ dependencies {
 
     // Lucide icons
     implementation("com.composables:icons-lucide:1.1.0")
+
+    // Accompanist System UI Controller for managing status/navigation bar colors
+    implementation("com.google.accompanist:accompanist-systemuicontroller:0.30.1")
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

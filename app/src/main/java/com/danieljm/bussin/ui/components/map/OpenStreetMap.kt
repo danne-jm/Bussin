@@ -203,7 +203,7 @@ fun OpenStreetMap(
                     if (sLat != null && sLon != null) {
                         try { mapView.controller.animateTo(GeoPoint(sLat, sLon)) } catch (_: Throwable) {}
                         // Optionally zoom closer for clarity
-                        try { mapView.controller.setZoom(18.0) } catch (_: Throwable) {}
+                        try { mapView.controller.setZoom(21.0) } catch (_: Throwable) {}
                     }
                     try { onCenterHandled?.invoke() } catch (_: Throwable) {}
                 }

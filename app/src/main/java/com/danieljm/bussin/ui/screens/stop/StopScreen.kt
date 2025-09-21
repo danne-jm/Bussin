@@ -7,15 +7,18 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
@@ -43,6 +46,7 @@ import com.composables.icons.lucide.Navigation
 import com.danieljm.bussin.domain.model.Stop
 import com.danieljm.bussin.ui.components.map.MapViewModel
 import com.danieljm.bussin.ui.components.map.OpenStreetMap
+import com.danieljm.bussin.ui.theme.TransparentSystemBars
 import com.danieljm.bussin.util.calculateDistance
 import com.danieljm.delijn.ui.components.stops.BottomSheet
 import kotlinx.coroutines.delay
@@ -59,6 +63,9 @@ fun StopScreen(
     stopViewModel: StopViewModel = hiltViewModel(),
     onStopClick: (String) -> Unit = {},
 ) {
+    // Configure transparent system bars so the map can render underneath
+    TransparentSystemBars()
+
     val state by stopViewModel.uiState.collectAsState()
 
     // Android context for permission checks and starting location updates
@@ -83,12 +90,7 @@ fun StopScreen(
         }
     }
 
-    // Compute the same distance-based sort the BottomSheet uses so indexes line up
-    val sortedDisplayedStops = remember(filteredStops, state.stops, /* user location observed below */) {
-        // We'll actually sort inside a derived remember that depends on userLocation below to avoid
-        // using a stale user location; this placeholder will be replaced in the next remember below.
-        filteredStops
-    }
+    // We'll compute the sorted list later as `sortedDisplayedStopsFinal` which depends on userLocation.
 
     // Remember a center request from the BottomSheet. When non-null, OpenStreetMap will
     // animate to that stop and then the `onCenterHandled` callback will clear it.
@@ -125,11 +127,6 @@ fun StopScreen(
         }
     }
 
-    // A lightweight suppression so that a recent manual scroll (triggered by tapping a map marker)
-    // isn't immediately overwritten by the automatic "scroll to top on displayed-stops change".
-    val lastManualScrollMs = remember { mutableStateOf(0L) }
-    val manualScrollSuppressMs = 1500L
-
     // Trigger for BottomSheet refresh animation
     val refreshAnimRequested = remember { mutableStateOf(false) }
 
@@ -156,9 +153,6 @@ fun StopScreen(
 
     // For scheduling at-most-one pending network fetch when panning rapidly
     val pendingNetworkFetchTargetMs = remember { mutableStateOf(0L) }
-
-    // Suppress map-center triggered fetches for a short window after a manual map marker tap
-    val ignoreCenterFetchUntilMs = remember { mutableStateOf(0L) }
 
     // Permission launcher for fine location (single)
     var hasLocationPermission by remember {
@@ -262,181 +256,174 @@ fun StopScreen(
         }
     }
 
-    Scaffold(
-        snackbarHost = { SnackbarHost(snackbarHostState) }
-    ) { scaffoldPadding ->
-        // Keep the map full-bleed (no scaffold padding) so the underlying MapView can render into
-        // the system insets. Apply `scaffoldPadding` only to overlay UI (controls, sheets, FAB)
-        Box(modifier = modifier.fillMaxSize()) {
-            // Full-screen map; pass the recenter trigger so OpenStreetMap will center when incremented
-            OpenStreetMap(
-                modifier = Modifier.fillMaxSize(),
-                userLocation = userLocation,
-                stops = state.stops,
-                onStopClick = { stop ->
-                    // Navigate directly to stop details instead of highlighting in bottom sheet
-                    onStopClick(stop.id)
-                },
-                recenterTrigger = recenterTrigger.value,
-                onMapCenterChanged = { lat, lon ->
-                    val now = System.currentTimeMillis()
+    // Full-screen Box that allows the map to draw under system bars
+    Box(modifier = modifier.fillMaxSize()) {
+        // Full-screen map with no padding - let it draw edge-to-edge
+        OpenStreetMap(
+            modifier = Modifier.fillMaxSize(),
+            userLocation = userLocation,
+            stops = state.stops,
+            onStopClick = { stop ->
+                // Navigate directly to stop details instead of highlighting in bottom sheet
+                onStopClick(stop.id)
+            },
+            recenterTrigger = recenterTrigger.value,
+            onMapCenterChanged = { lat, lon ->
+                val now = System.currentTimeMillis()
 
-                    val cachedCooldownMs = 500L
-                    val networkCooldownMs = 2_000L
+                val cachedCooldownMs = 500L
+                val networkCooldownMs = 2_000L
 
-                    // 1) Quick cached display (rate-limited to `cachedCooldownMs`)
-                    if (now - lastCenterCachedMs.value > cachedCooldownMs) {
-                        lastCenterCachedMs.value = now
-                        try {
-                            stopViewModel.loadCachedNearbyStops(lat, lon)
-                        } catch (_: Throwable) {}
-                    }
+                // 1) Quick cached display (rate-limited to `cachedCooldownMs`)
+                if (now - lastCenterCachedMs.value > cachedCooldownMs) {
+                    lastCenterCachedMs.value = now
+                    try {
+                        stopViewModel.loadCachedNearbyStops(lat, lon)
+                    } catch (_: Throwable) {}
+                }
 
-                    // 2) Network fetch: if allowed now, run immediately; otherwise schedule one after cooldown.
-                    val sinceLastNetwork = now - lastCenterFetchMs.value
-                    if (sinceLastNetwork > networkCooldownMs) {
-                        lastCenterFetchMs.value = now
-                        refreshAnimRequested.value = true
-                        stopViewModel.loadNearbyStops(stop = "", lat = lat, lon = lon)
-                    } else {
-                        // schedule one fetch at time targetMs (only keep latest)
-                        val delayMs = networkCooldownMs - sinceLastNetwork
-                        val targetMs = now + delayMs
-                        pendingNetworkFetchTargetMs.value = targetMs
-                        coroutineScope.launch {
-                            delay(delayMs)
-                            // only run if no newer scheduled fetch replaced this
-                            if (pendingNetworkFetchTargetMs.value == targetMs) {
-                                lastCenterFetchMs.value = System.currentTimeMillis()
-                                refreshAnimRequested.value = true
-                                try {
-                                    stopViewModel.loadNearbyStops(stop = "", lat = lat, lon = lon)
-                                } catch (_: Throwable) {}
-                                // clear pending marker
-                                pendingNetworkFetchTargetMs.value = 0L
-                            }
+                // 2) Network fetch: if allowed now, run immediately; otherwise schedule one after cooldown.
+                val sinceLastNetwork = now - lastCenterFetchMs.value
+                if (sinceLastNetwork > networkCooldownMs) {
+                    lastCenterFetchMs.value = now
+                    refreshAnimRequested.value = true
+                    stopViewModel.loadNearbyStops(stop = "", lat = lat, lon = lon)
+                } else {
+                    // schedule one fetch at time targetMs (only keep latest)
+                    val delayMs = networkCooldownMs - sinceLastNetwork
+                    val targetMs = now + delayMs
+                    pendingNetworkFetchTargetMs.value = targetMs
+                    coroutineScope.launch {
+                        delay(delayMs)
+                        // only run if no newer scheduled fetch replaced this
+                        if (pendingNetworkFetchTargetMs.value == targetMs) {
+                            lastCenterFetchMs.value = System.currentTimeMillis()
+                            refreshAnimRequested.value = true
+                            try {
+                                stopViewModel.loadNearbyStops(stop = "", lat = lat, lon = lon)
+                            } catch (_: Throwable) {}
+                            // clear pending marker
+                            pendingNetworkFetchTargetMs.value = 0L
                         }
-                    }
-                },
-                onVisibleStopIdsChanged = { ids ->
-                    // Update the visible IDs (possibly empty). This makes the BottomSheet
-                    // show exactly the stops that have markers on the map.
-                    visibleStopIds.value = ids
-                },
-                // Center request from BottomSheet card taps
-                centerOnStop = centerRequestedStop.value,
-                onCenterHandled = { centerRequestedStop.value = null }
-            )
-
-            // Top controls overlay: only show the enable-permission button when location isn't enabled.
-            Row(
-                // Apply scaffold/system padding to the top controls so they avoid the status bar
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(scaffoldPadding)
-                    .padding(12.dp)
-                    .align(Alignment.TopCenter),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center
-            ) {
-                if (!hasLocationPermission) {
-                    Button(onClick = {
-                        permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
-                    }) {
-                        Text(text = "Enable Location")
                     }
                 }
+            },
+            onVisibleStopIdsChanged = { ids ->
+                // Update the visible IDs (possibly empty). This makes the BottomSheet
+                // show exactly the stops that have markers visible on the map.
+                visibleStopIds.value = ids
+            },
+            // Center request from BottomSheet card taps
+            centerOnStop = centerRequestedStop.value,
+            onCenterHandled = { centerRequestedStop.value = null }
+        )
+
+        // Top controls overlay: only show the enable-permission button when location isn't enabled.
+        // Apply window insets padding to avoid drawing under status bar
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .windowInsetsPadding(WindowInsets.safeDrawing)
+                .padding(12.dp)
+                .align(Alignment.TopCenter),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
+        ) {
+            if (!hasLocationPermission) {
+                Button(
+                    onClick = { permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION) },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF2A2D32),
+                        contentColor = Color(0xFFBDBDBD)
+                    )
+                ) {
+                    Text(text = "Enable Location")
+                }
             }
-
-            // BottomSheet overlay on top of the map showing stop cards
-            BottomSheet(
-                // Apply scaffold padding so bottom sheet avoids navigation bars / insets
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(scaffoldPadding)
-                    .align(Alignment.BottomCenter),
-                stops = sortedDisplayedStopsFinal,
-                userLat = userLocation?.latitude,
-                userLon = userLocation?.longitude,
-                onStopClick = { stop ->
-                    // Request the map to center on this stop, expand sheet (already visible) and highlight
-                    centerRequestedStop.value = stop
-                    highlightedStopId.value = stop.id
-                    // clear highlight after a short duration
-                    coroutineScope.launch {
-                        try { delay(1500) } catch (_: Throwable) {}
-                        highlightedStopId.value = null
-                    }
-                    onStopClick(stop.id)
-                },
-                onRefresh = {
-                    // When user taps refresh in the sheet header, run the same logic and animate
-                    refreshAnimRequested.value = true
-                    stopViewModel.loadNearbyStops(stop = "", lat = userLocation?.latitude ?: 50.873322, lon = userLocation?.longitude ?: 4.525903)
-                },
-                isLoading = state.isLoading,
-                shouldAnimateRefresh = refreshAnimRequested.value,
-                onRefreshAnimationComplete = { refreshAnimRequested.value = false },
-                listState = listState,
-                expanded = bottomSheetExpanded.value,
-                highlightedStopId = highlightedStopId.value,
-                onHeightChanged = { dp -> bottomSheetHeight = dp }
-            )
-
-            // Only auto-scroll to top when the displayed list changes if we haven't recently
-            // performed a manual scroll triggered by tapping a map marker.
-            LaunchedEffect(sortedDisplayedStopsFinal) {
-                try {
-                    if (sortedDisplayedStopsFinal.isNotEmpty()) {
-                        val now = System.currentTimeMillis()
-                        if (now - lastManualScrollMs.value > manualScrollSuppressMs) {
-                            listState.animateScrollToItem(0)
-                        }
-                    }
-                } catch (_: Throwable) {}
-            }
-
-            // Floating Action Button positioned above the bottom sheet at its top-right
-            FloatingActionButton(
-                onClick = {
-                    // ripple is automatic; trigger haptic feedback
-                    try { haptic.performHapticFeedback(HapticFeedbackType.LongPress) } catch (_: Throwable) {}
-
-                    if (hasLocationPermission) {
-                        // One-time recenter: if we have a location, request recenter immediately
-                        val loc = userLocation
-                        if (loc != null) {
-                            recenterTrigger.value += 1
-                            // Also request nearby stops for the user's current location immediately
-                            try { stopViewModel.loadNearbyStops(stop = "", lat = loc.latitude, lon = loc.longitude) } catch (_: Throwable) {}
-                            pendingCenterOnLocation.value = false
-                        } else {
-                            // start location updates and wait to center when location arrives
-                            if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
-                                ContextCompat.checkSelfPermission(ctx, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
-                                mapViewModel.startLocationUpdates(ctx)
-                                pendingCenterOnLocation.value = true
-                            } else {
-                                permissionLauncherForMultiStart.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
-                            }
-                        }
-                    } else {
-                        // Ask for both permissions when user taps FAB
-                        multiPermissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
-                    }
-                },
-                containerColor = Color(0xFF1D2124),
-                contentColor = Color(0xFFBDBDBD),
-                shape = RoundedCornerShape(32.dp),
-                // Apply scaffold padding so FAB sits above system nav bar, then add custom offsets
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(scaffoldPadding)
-                    .padding(end = 16.dp, bottom = bottomSheetHeight + 16.dp)
-            ) {
-                Icon(Lucide.Navigation, contentDescription = "Center on my location")
-            }
-
         }
+
+        // BottomSheet overlay on top of the map showing stop cards
+        // Apply window insets padding to avoid drawing under navigation bar
+        BottomSheet(
+            modifier = Modifier
+                .fillMaxWidth()
+                .windowInsetsPadding(WindowInsets.safeDrawing)
+                .align(Alignment.BottomCenter),
+            stops = sortedDisplayedStopsFinal,
+            userLat = userLocation?.latitude,
+            userLon = userLocation?.longitude,
+            onStopClick = { stop ->
+                // Request the map to center on this stop, expand sheet (already visible) and highlight
+                centerRequestedStop.value = stop
+                highlightedStopId.value = stop.id
+                // clear highlight after a short duration
+                coroutineScope.launch {
+                    try { delay(1500) } catch (_: Throwable) {}
+                    highlightedStopId.value = null
+                }
+                // Remove the navigation call - stop cards should only center the map
+            },
+            onRefresh = {
+                // When user taps refresh in the sheet header, run the same logic and animate
+                refreshAnimRequested.value = true
+                stopViewModel.loadNearbyStops(stop = "", lat = userLocation?.latitude ?: 50.873322, lon = userLocation?.longitude ?: 4.525903)
+            },
+            isLoading = state.isLoading,
+            shouldAnimateRefresh = refreshAnimRequested.value,
+            onRefreshAnimationComplete = { refreshAnimRequested.value = false },
+            listState = listState,
+            expanded = bottomSheetExpanded.value,
+            highlightedStopId = highlightedStopId.value,
+            onHeightChanged = { dp -> bottomSheetHeight = dp }
+        )
+
+        // Floating Action Button positioned above the bottom sheet at its top-right
+        // Apply window insets padding to avoid drawing under navigation bar
+        FloatingActionButton(
+            onClick = {
+                // ripple is automatic; trigger haptic feedback
+                try { haptic.performHapticFeedback(HapticFeedbackType.LongPress) } catch (_: Throwable) {}
+
+                if (hasLocationPermission) {
+                    // One-time recenter: if we have a location, request recenter immediately
+                    val loc = userLocation
+                    if (loc != null) {
+                        recenterTrigger.value += 1
+                        // Also request nearby stops for the user's current location immediately
+                        try { stopViewModel.loadNearbyStops(stop = "", lat = loc.latitude, lon = loc.longitude) } catch (_: Throwable) {}
+                        pendingCenterOnLocation.value = false
+                    } else {
+                        // start location updates and wait to center when location arrives
+                        if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+                            ContextCompat.checkSelfPermission(ctx, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+                            mapViewModel.startLocationUpdates(ctx)
+                            pendingCenterOnLocation.value = true
+                        } else {
+                            permissionLauncherForMultiStart.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
+                        }
+                    }
+                } else {
+                    // Ask for both permissions when user taps FAB
+                    multiPermissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
+                }
+            },
+            containerColor = Color(0xFF1D2124),
+            contentColor = Color(0xFFBDBDBD),
+            shape = RoundedCornerShape(32.dp),
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .windowInsetsPadding(WindowInsets.safeDrawing)
+                .padding(end = 16.dp, bottom = bottomSheetHeight + 16.dp)
+        ) {
+            Icon(Lucide.Navigation, contentDescription = "Center on my location")
+        }
+
+        // Snackbar host positioned to avoid system bars
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .windowInsetsPadding(WindowInsets.safeDrawing)
+        )
     }
 }
