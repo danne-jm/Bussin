@@ -44,6 +44,13 @@ class StopDetailsViewModel @Inject constructor(
         }
     }
 
+    fun refreshArrivals() {
+        val currentStopId = _uiState.value.selectedStop?.id
+        if (currentStopId != null) {
+            fetchFinalScheduleForStop(currentStopId)
+        }
+    }
+
     private fun fetchFinalScheduleForStop(stopId: String) {
         viewModelScope.launch {
             Log.d("StopDetailsVM", "Fetching final schedule for stop=$stopId")

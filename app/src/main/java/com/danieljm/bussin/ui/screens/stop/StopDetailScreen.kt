@@ -174,13 +174,9 @@ fun StopDetailScreen(
 
     // When nearby stop loading or stop details loading starts, show the refresh animation; when both
     // loaders are idle, stop the animation. This ensures animation runs while data is being fetched.
-    LaunchedEffect(stopUi.isLoading, ui.isLoading) {
+    LaunchedEffect(ui.arrivalsLoading) {
         try {
-            if (stopUi.isLoading || ui.isLoading) {
-                refreshAnimRequested.value = true
-            } else {
-                refreshAnimRequested.value = false
-            }
+            refreshAnimRequested.value = ui.arrivalsLoading
         } catch (_: Throwable) { }
     }
 
@@ -312,13 +308,11 @@ fun StopDetailScreen(
             onRefresh = {
                 // Trigger a nearby stops reload centered on the selected stop (or fallback).
                 // Force=true so manual taps always initiate a network request regardless of throttle.
-                val lat = selectedStop?.latitude ?: userLocation?.latitude ?: 50.873322
-                val lon = selectedStop?.longitude ?: userLocation?.longitude ?: 4.525903
-                try { stopViewModel.loadNearbyStops(stop = "", lat = lat, lon = lon, force = true) } catch (_: Throwable) {}
+                viewModel.refreshArrivals()
                 // manual refresh should always force a refresh, so update the last-executed timestamp
                 lastRefreshExecutedMs.value = System.currentTimeMillis()
             },
-             isLoading = ui.isLoading,
+             isLoading = ui.arrivalsLoading,
             shouldAnimateRefresh = refreshAnimRequested.value,
             onRefreshAnimationComplete = { refreshAnimRequested.value = false },
              listState = listState,
