@@ -28,27 +28,30 @@ class StopViewModel @Inject constructor(
     private var lastFetchLat: Double? = null
     private var lastFetchLon: Double? = null
 
-    fun loadNearbyStops(stop: String, lat: Double, lon: Double, radius: Int? = null, maxAantal: Int? = null) {
-        // Optimization: avoid refetching when the requested center is very close to the last one.
+    fun loadNearbyStops(stop: String, lat: Double, lon: Double, radius: Int? = null, maxAantal: Int? = null, force: Boolean = false) {
+        // If `force` is true we bypass the distance-based throttle and always attempt a fetch.
         try {
-            val lastLat = lastFetchLat
-            val lastLon = lastFetchLon
-            if (lastLat != null && lastLon != null) {
-                val results = FloatArray(1)
-                Location.distanceBetween(lat, lon, lastLat, lastLon, results)
-                val dist = results[0]
-                // If the map center hasn't moved more than ~50 meters since the last fetch, skip.
-                if (dist < 50f) {
-                    // ensure we are not showing a loader
-                    _uiState.value = _uiState.value.copy(isLoading = false)
-                    return
+            if (!force) {
+                val lastLat = lastFetchLat
+                val lastLon = lastFetchLon
+                if (lastLat != null && lastLon != null) {
+                    val results = FloatArray(1)
+                    Location.distanceBetween(lat, lon, lastLat, lastLon, results)
+                    val dist = results[0]
+                    // If the map center hasn't moved more than ~50 meters since the last fetch, skip.
+                    if (dist < 50f) {
+                        // ensure we are not showing a loader
+                        _uiState.value = _uiState.value.copy(isLoading = false)
+                        return
+                    }
                 }
             }
 
-            Log.d("StopViewModel", "loadNearbyStops called: stop=$stop lat=$lat lon=$lon radius=$radius maxAantal=$maxAantal")
+            Log.d("StopViewModel", "loadNearbyStops called: stop=$stop lat=$lat lon=$lon radius=$radius maxAantal=$maxAantal force=$force")
             _uiState.value = _uiState.value.copy(isLoading = true, error = null)
 
-            // store last fetch coords now to throttle subsequent calls
+            // store last fetch coords now to throttle subsequent calls (even when forced) so
+            // subsequent non-forced calls still benefit from the throttle.
             lastFetchLat = lat
             lastFetchLon = lon
         } catch (_: Throwable) {

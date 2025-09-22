@@ -16,6 +16,8 @@ import com.danieljm.bussin.ui.screens.more.MoreScreen
 import com.danieljm.bussin.ui.screens.plan.PlanScreen
 import com.danieljm.bussin.ui.screens.stop.StopScreen
 import com.danieljm.bussin.ui.screens.stopdetails.StopDetailsScreen
+import com.danieljm.bussin.ui.theme.DarkSystemBars
+import com.danieljm.bussin.ui.theme.TransparentSystemBars
 import java.net.URLDecoder
 
 @Composable
@@ -24,6 +26,15 @@ fun BussinNavHost(
 ) {
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
+
+    // Centralized system bar control so Scaffold and bottomBar behave correctly when
+    // navigating to routes that require edge-to-edge content (map screens).
+    val isEdgeToEdgeRoute = currentRoute == NavRoutes.STOPS || (currentRoute?.contains(NavRoutes.STOP_DETAILS) == true)
+    if (isEdgeToEdgeRoute) {
+        TransparentSystemBars()
+    } else {
+        DarkSystemBars()
+    }
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),

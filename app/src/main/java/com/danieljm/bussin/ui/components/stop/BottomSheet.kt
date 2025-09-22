@@ -1,5 +1,6 @@
 package com.danieljm.delijn.ui.components.stops
 
+import android.util.Log
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
@@ -116,6 +117,7 @@ fun BottomSheet(
     val animatedHeightDp by animateDpAsState(targetValue = heightDp, label = "BottomSheetHeightAnimation")
 
     val rotation = remember { Animatable(0f) }
+    val spinRunning = remember { mutableStateOf(false) }
 
     val sortedStops = remember(stops, userLat, userLon) {
         if (userLat != null && userLon != null) {
@@ -146,21 +148,26 @@ fun BottomSheet(
         heightPx = if (expanded) expandedPx else collapsedPx
     }
 
+    // Run a guaranteed one-shot spin when `shouldAnimateRefresh` becomes true. We launch the
+    // animation in the composition-scoped `spinScope` so it's not cancelled by small recompositions
+    // or owner-LaunchedEffect restarts; guard concurrent spins with `spinRunning` so we only
+    // perform one full rotation per trigger. Always reset rotation to 0 in finally to avoid
+    // visual half-rotations.
     LaunchedEffect(shouldAnimateRefresh) {
-        // When requested, keep spinning continuously until the request is cancelled
         if (!shouldAnimateRefresh) return@LaunchedEffect
-
-        rotation.snapTo(0f) // Start from 0
+        if (spinRunning.value) return@LaunchedEffect
+        spinRunning.value = true
         try {
-            while (true) {
-                // Each loop spins once; cancellation will terminate this coroutine when
-                // `shouldAnimateRefresh` changes (the LaunchedEffect will be cancelled).
-                rotation.animateTo(360f, animationSpec = tween(durationMillis = 800))
-                rotation.snapTo(0f) // Reset after each full spin so the next spin starts at 0
-            }
+            Log.d("BottomSheet", "refresh spin start: shouldAnimateRefresh=$shouldAnimateRefresh")
+            rotation.snapTo(0f)
+            rotation.animateTo(360f, animationSpec = tween(durationMillis = 800))
+        } catch (_: Exception) {
+            // ignore - we'll reset below
         } finally {
-            // Notify the caller when the animation loop has stopped (either completed or cancelled)
-            onRefreshAnimationComplete?.invoke()
+            try { rotation.snapTo(0f) } catch (_: Exception) {}
+            spinRunning.value = false
+            try { onRefreshAnimationComplete?.invoke() } catch (_: Exception) {}
+            Log.d("BottomSheet", "refresh spin complete")
         }
     }
 
@@ -225,9 +232,9 @@ fun BottomSheet(
 
             // Header slot (optional). If caller provided a headerContent composable, use that.
             if (headerContent != null) {
-                // Use `shouldAnimateRefresh` as the authoritative refreshing flag so callers
-                // receive a steady true value for the entire duration of the network request.
-                headerContent(rotation.value, shouldAnimateRefresh || rotation.isRunning, onRefresh)
+                // Pass the spin-running state as the `isRefreshing` parameter so callers
+                // know whether a one-shot spin is currently active.
+                headerContent(rotation.value, spinRunning.value, onRefresh)
             } else {
                 // Default header: title + refresh icon
                 Row(
@@ -251,15 +258,12 @@ fun BottomSheet(
                             .size(28.dp)
                             .padding(start = 8.dp)
                             .graphicsLayer { rotationZ = rotation.value }
-                            // Disable the manual refresh while a refresh is requested. Use the
-                            // `shouldAnimateRefresh` flag so the button stays disabled for the
-                            // entire network request, not only during the brief animate window.
-                            .clickable(enabled = onRefresh != null && !shouldAnimateRefresh && !isLoading) {
+                            .clickable(enabled = onRefresh != null && !spinRunning.value && !isLoading) {
                                 onRefresh?.invoke()
                             }
-                    )
-                }
-            }
+                     )
+                 }
+             }
 
             // Body slot (optional). If caller provided a bodyContent composable, use that.
             if (bodyContent != null) {

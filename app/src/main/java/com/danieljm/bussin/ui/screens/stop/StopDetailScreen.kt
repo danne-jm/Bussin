@@ -53,7 +53,6 @@ import com.danieljm.bussin.ui.components.map.MapViewModel
 import com.danieljm.bussin.ui.components.map.OpenStreetMap
 import com.danieljm.bussin.ui.components.stopdetails.BusCard
 import com.danieljm.bussin.ui.screens.stopdetails.StopDetailsViewModel
-import com.danieljm.bussin.ui.theme.TransparentSystemBars
 import com.danieljm.delijn.ui.components.stops.BottomSheet
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -74,7 +73,7 @@ fun StopDetailScreen(
     stopViewModel: StopViewModel = hiltViewModel(),
     onBack: () -> Unit = {}
 ) {
-    TransparentSystemBars()
+    // TransparentSystemBars() removed — system bar handling is centralized in BussinNavHost
 
     // Load stop details when stopId changes
     LaunchedEffect(stopId) {
@@ -138,42 +137,40 @@ fun StopDetailScreen(
         immediateHeaderName = null
     }
 
-    // Refresh scheduling: trigger automatic refresh every 20s; manual refresh or selecting a stop resets the timer
-    val refreshTimerToken = remember { mutableStateOf(0L) }
-
-    // Start a coroutine to auto-refresh every 20s for the current selected stop.
-    LaunchedEffect(selectedStop?.id) {
-        // Reset token when selection changes
-        refreshTimerToken.value = System.currentTimeMillis()
-        while (true) {
-            val tokenAtStart = refreshTimerToken.value
-            // wait in one-second chunks so we can early-break when token changes
-            var waited = 0L
-            val interval = 20_000L
-            while (waited < interval) {
-                // if token changed, reset waiting
-                if (refreshTimerToken.value != tokenAtStart) break
-                delay(1000L)
-                waited += 1000L
-            }
-            if (refreshTimerToken.value != tokenAtStart) {
-                // timer was reset; start a new wait cycle
-                continue
-            }
-            // time expired: perform a refresh (only if not already loading)
-            try {
-                refreshAnimRequested.value = true
-                val lat = selectedStop?.latitude ?: userLocation?.latitude ?: 50.873322
-                val lon = selectedStop?.longitude ?: userLocation?.longitude ?: 4.525903
-                try { stopViewModel.loadNearbyStops(stop = "", lat = lat, lon = lon) } catch (_: Throwable) {}
-            } catch (_: Throwable) {}
-            // reset token after auto-refresh
-            refreshTimerToken.value = System.currentTimeMillis()
-        }
-    }
+    // Track timestamp (millis) of the last executed arrivals refresh. Manual taps and
+    // network-driven refreshes should update this to avoid duplicate refreshes. If 20s
+    // elapse since the last execution we will auto-trigger a refresh and reset this.
+    val lastRefreshExecutedMs = remember { mutableStateOf(0L) }
 
     // Observe nearby stops from StopViewModel so we can render them on the map.
+    // Declare this before the auto-refresh LaunchedEffect so the ticker can check loader state.
     val stopUi by stopViewModel.uiState.collectAsState()
+
+    // Auto-refresh loop: when the selected stop changes, reset the last-executed timestamp
+    // and run a ticker that will trigger a refresh once 20s have elapsed since the last
+    // execution. Manual refreshes must update `lastRefreshExecutedMs` to reset the timer.
+    LaunchedEffect(selectedStop?.id) {
+        lastRefreshExecutedMs.value = System.currentTimeMillis()
+        while (true) {
+            val now = System.currentTimeMillis()
+            val elapsed = now - lastRefreshExecutedMs.value
+            val interval = 20_000L
+            if (elapsed >= interval) {
+                // Only auto-trigger when no loaders are currently active to avoid overlapping requests.
+                if (!(stopUi.isLoading || ui.isLoading)) {
+                    try {
+                        val lat = selectedStop?.latitude ?: userLocation?.latitude ?: 50.873322
+                        val lon = selectedStop?.longitude ?: userLocation?.longitude ?: 4.525903
+                        try { stopViewModel.loadNearbyStops(stop = "", lat = lat, lon = lon, force = true) } catch (_: Throwable) {}
+                    } catch (_: Throwable) {}
+                    // update last executed time to now so the next auto-refresh waits again
+                    lastRefreshExecutedMs.value = System.currentTimeMillis()
+                }
+            }
+            // Sleep a short interval so we can react shortly after 20s elapses or when timestamp resets
+            delay(1000L)
+        }
+    }
 
     // When nearby stop loading or stop details loading starts, show the refresh animation; when both
     // loaders are idle, stop the animation. This ensures animation runs while data is being fetched.
@@ -193,7 +190,10 @@ fun StopDetailScreen(
         val lat = selectedStop?.latitude
         val lon = selectedStop?.longitude
         if (lat != null && lon != null) {
-            try { stopViewModel.loadNearbyStops(stop = "", lat = lat, lon = lon) } catch (_: Throwable) {}
+            try {
+                stopViewModel.loadNearbyStops(stop = "", lat = lat, lon = lon)
+                lastRefreshExecutedMs.value = System.currentTimeMillis()
+            } catch (_: Throwable) {}
         }
     }
 
@@ -244,9 +244,9 @@ fun StopDetailScreen(
                         val lon = stop.longitude
                         if (lat != null && lon != null) {
                             try { stopViewModel.loadNearbyStops(stop = "", lat = lat, lon = lon) } catch (_: Throwable) {}
+                            // reset the auto-refresh timer because user manually changed focus
+                            lastRefreshExecutedMs.value = System.currentTimeMillis()
                         }
-                        // reset the auto-refresh timer because user manually changed focus
-                        refreshTimerToken.value = System.currentTimeMillis()
                     }
                 } catch (_: Throwable) {}
             },
@@ -269,7 +269,10 @@ fun StopDetailScreen(
                 val sinceLastNetwork = now - lastCenterFetchMs.value
                 if (sinceLastNetwork > networkCooldownMs) {
                     lastCenterFetchMs.value = now
-                    try { stopViewModel.loadNearbyStops(stop = "", lat = lat, lon = lon) } catch (_: Throwable) {}
+                    try {
+                        stopViewModel.loadNearbyStops(stop = "", lat = lat, lon = lon)
+                        lastRefreshExecutedMs.value = System.currentTimeMillis()
+                    } catch (_: Throwable) {}
                 } else {
                     // schedule one fetch at time targetMs (only keep latest)
                     val delayMs = networkCooldownMs - sinceLastNetwork
@@ -280,13 +283,16 @@ fun StopDetailScreen(
                         // only run if no newer scheduled fetch replaced this
                         if (pendingNetworkFetchTargetMs.value == targetMs) {
                             lastCenterFetchMs.value = System.currentTimeMillis()
-                            try { stopViewModel.loadNearbyStops(stop = "", lat = lat, lon = lon) } catch (_: Throwable) {}
+                            try {
+                                stopViewModel.loadNearbyStops(stop = "", lat = lat, lon = lon)
+                                lastRefreshExecutedMs.value = System.currentTimeMillis()
+                            } catch (_: Throwable) {}
                             // clear pending marker
                             pendingNetworkFetchTargetMs.value = 0L
                         }
-                    }
-                }
-            },
+                     }
+                 }
+             },
             onVisibleStopIdsChanged = { /* no-op */ },
               // Pass the one-time pending center request instead of always passing selectedStop.
               centerOnStop = pendingCenterStop,
@@ -306,11 +312,13 @@ fun StopDetailScreen(
             userLon = userLocation?.longitude,
             onStopClick = { /* no-op */ },
             onRefresh = {
-                // Animate the header and trigger a nearby stops reload centered on the selected stop (or fallback)
-                refreshAnimRequested.value = true
+                // Trigger a nearby stops reload centered on the selected stop (or fallback).
+                // Force=true so manual taps always initiate a network request regardless of throttle.
                 val lat = selectedStop?.latitude ?: userLocation?.latitude ?: 50.873322
                 val lon = selectedStop?.longitude ?: userLocation?.longitude ?: 4.525903
-                try { stopViewModel.loadNearbyStops(stop = "", lat = lat, lon = lon) } catch (_: Throwable) {}
+                try { stopViewModel.loadNearbyStops(stop = "", lat = lat, lon = lon, force = true) } catch (_: Throwable) {}
+                // manual refresh should always force a refresh, so update the last-executed timestamp
+                lastRefreshExecutedMs.value = System.currentTimeMillis()
             },
              isLoading = ui.isLoading,
             shouldAnimateRefresh = refreshAnimRequested.value,
@@ -361,11 +369,11 @@ fun StopDetailScreen(
                                 .size(28.dp)
                                 .padding(start = 8.dp)
                                 .graphicsLayer { rotationZ = _rotation }
-                                .clickable(enabled = _onRefresh != null && !_isRefreshing && !ui.isLoading) {
+                                .clickable(enabled = _onRefresh != null) {
                                     // manual tap should force a refetch
                                     _onRefresh?.invoke()
                                     // reset the auto-refresh timer when user manually refreshes
-                                    refreshTimerToken.value = System.currentTimeMillis()
+                                    lastRefreshExecutedMs.value = System.currentTimeMillis()
                                 }
                         )
                     }

@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -27,6 +28,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.graphics.toColorInt
 import com.composables.icons.lucide.Bus
+import com.composables.icons.lucide.BusFront
 import com.composables.icons.lucide.CloudOff
 import com.composables.icons.lucide.Lucide
 import com.danieljm.bussin.domain.model.Arrival
@@ -84,7 +86,20 @@ fun BusCard(arrival: Arrival, modifier: Modifier = Modifier) {
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Lucide.BusFront,
+                        contentDescription = "Bus front",
+                        tint = Color(0xFFBDBDBD),
+                        modifier = Modifier
+                            .align(
+                                Alignment.CenterVertically
+                            )
+                            .offset(x = (-4).dp)
+                    )
+                    Spacer(modifier = Modifier.size(4.dp))
                     // Line badge with optional border
                     Box(modifier = borderModifier) {
                         Box(
@@ -148,7 +163,7 @@ fun BusCard(arrival: Arrival, modifier: Modifier = Modifier) {
                         val delayColor = when {
                             delayMinutes == 0 -> Color(0xFF74C4AB)
                             delayMinutes > 0 -> Color(0xFFD6978E)
-                            else -> Color(0xFF5C86EC)
+                            else -> Color(0xFF6C96EF)
                         }
                         Text(
                             text = delayText,

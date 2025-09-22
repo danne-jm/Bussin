@@ -46,7 +46,6 @@ import com.composables.icons.lucide.Navigation
 import com.danieljm.bussin.domain.model.Stop
 import com.danieljm.bussin.ui.components.map.MapViewModel
 import com.danieljm.bussin.ui.components.map.OpenStreetMap
-import com.danieljm.bussin.ui.theme.TransparentSystemBars
 import com.danieljm.bussin.util.calculateDistance
 import com.danieljm.delijn.ui.components.stops.BottomSheet
 import kotlinx.coroutines.delay
@@ -63,8 +62,7 @@ fun StopScreen(
     stopViewModel: StopViewModel = hiltViewModel(),
     onStopClick: (String, String?) -> Unit = { _, _ -> },
 ) {
-    // Configure transparent system bars so the map can render underneath
-    TransparentSystemBars()
+    // TransparentSystemBars() removed — system bar handling is centralized in BussinNavHost
 
     val state by stopViewModel.uiState.collectAsState()
 
@@ -368,7 +366,7 @@ fun StopScreen(
             onRefresh = {
                 // When user taps refresh in the sheet header, run the same logic and animate
                 refreshAnimRequested.value = true
-                stopViewModel.loadNearbyStops(stop = "", lat = userLocation?.latitude ?: 50.873322, lon = userLocation?.longitude ?: 4.525903)
+                stopViewModel.loadNearbyStops(stop = "", lat = userLocation?.latitude ?: 50.873322, lon = userLocation?.longitude ?: 4.525903, force = true)
             },
             isLoading = state.isLoading,
             shouldAnimateRefresh = refreshAnimRequested.value,
