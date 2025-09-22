@@ -153,7 +153,7 @@ fun StopDetailScreen(
             while (waited < interval) {
                 // if token changed, reset waiting
                 if (refreshTimerToken.value != tokenAtStart) break
-                kotlinx.coroutines.delay(1000L)
+                delay(1000L)
                 waited += 1000L
             }
             if (refreshTimerToken.value != tokenAtStart) {

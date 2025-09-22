@@ -90,8 +90,22 @@ object ArrivalsMapper {
                 val list = byEntiteit.getOrPut(id) { mutableListOf() }
                 list.add(l)
             }
-            l.lijnNummerPubliek?.let { byPubliek[it] = l }
+            l.lijnNummerPubliek?.let { pub ->
+                val trimmed = pub.trim()
+                // store exact label and lowercase variant for case-insensitive lookup
+                byPubliek[trimmed] = l
+                byPubliek[trimmed.lowercase(Locale.getDefault())] = l
+                // also store the numeric portion if present (e.g., 'R36' -> '36') to help numeric lookups
+                val digits = Regex("\\d+").find(trimmed)?.value
+                if (!digits.isNullOrBlank()) {
+                    byPubliek[digits] = l
+                }
+            }
         }
+        try {
+            // Debug: report what keys we built so it's clear how matching will behave.
+            Log.d("ArrivalsMapper", "buildLineIndexes: byLijnKeys=${byLijn.keys}, byPubliekKeys=${byPubliek.keys}, byEntiteitCounts=${byEntiteit.mapValues { it.value.size }}")
+        } catch (_: Exception) {}
         return Triple(byLijn, byEntiteit, byPubliek)
     }
 
@@ -137,9 +151,32 @@ object ArrivalsMapper {
             }
         }
 
+        // If still not found, try matching by normalized lijnnummer alone using the index map.
+        // This handles cases where the `lines` entry doesn't include entiteitnummer but
+        // the doorkomst `lijnnummer` (often a number) matches the line's `lijnnummer`.
+        if (lineMeta == null && !dtoLijnStr.isNullOrBlank()) {
+            val byLijnMatch = byLijn[dtoLijnStr]
+            if (byLijnMatch != null) {
+                lineMeta = byLijnMatch
+            }
+        }
+
         // As a last resort, try matching by public label using dtoLijnStr
         if (lineMeta == null && !dtoLijnStr.isNullOrBlank()) {
-            lineMeta = byPubliek[dtoLijnStr]
+            // Try direct lookup (case-sensitive), then lowercase key, then try numeric suffixes
+            lineMeta = byPubliek[dtoLijnStr] ?: byPubliek[dtoLijnStr.lowercase(Locale.getDefault())]
+            if (lineMeta == null) {
+                // Try suffixes (e.g. dtoLijnStr='136' -> try '36' to match public label 'R36')
+                val maxSuffix = minOf(3, dtoLijnStr.length)
+                for (len in 1..maxSuffix) {
+                    val suffix = dtoLijnStr.takeLast(len)
+                    val candidate = byPubliek[suffix]
+                    if (candidate != null) {
+                        lineMeta = candidate
+                        break
+                    }
+                }
+            }
         }
 
         // If still not found, but entiteit maps to multiple candidates, prefer one matching richting
@@ -190,7 +227,9 @@ object ArrivalsMapper {
         return Arrival(
             doorkomstId = dto.doorkomstId,
             entiteitnummer = dto.entiteitnummer,
-            lijnnummer = dto.lijnnummer?.toString(),
+            // Prefer the normalized lijn string (e.g. '136' instead of '136.0') so UI and matching
+            // consistently see the cleaned value.
+            lijnnummer = dtoLijnStr ?: dto.lijnnummer?.toString(),
             richting = dto.richting,
             ritnummer = dto.ritnummer,
             bestemming = dto.bestemming,
