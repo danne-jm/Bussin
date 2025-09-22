@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.util.Log
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,6 +21,7 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material3.Icon
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
@@ -30,10 +32,12 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -42,6 +46,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.composables.icons.lucide.Lucide
+import com.composables.icons.lucide.RefreshCw
 import com.danieljm.bussin.domain.model.Stop
 import com.danieljm.bussin.ui.components.map.MapViewModel
 import com.danieljm.bussin.ui.components.map.OpenStreetMap
@@ -49,12 +55,15 @@ import com.danieljm.bussin.ui.components.stopdetails.BusCard
 import com.danieljm.bussin.ui.screens.stopdetails.StopDetailsViewModel
 import com.danieljm.bussin.ui.theme.TransparentSystemBars
 import com.danieljm.delijn.ui.components.stops.BottomSheet
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /**
  * Stop detail screen which shows the same full-screen map as `StopScreen` but without the FAB.
  * The bottom sheet header shows the stop name and id; body content is intentionally empty.
  * This composable accepts a stopId and optionally a stopName (passed from navigation).
  */
+@Suppress("UNUSED_PARAMETER", "UNUSED_VARIABLE")
 @Composable
 fun StopDetailScreen(
     modifier: Modifier = Modifier,
@@ -62,6 +71,7 @@ fun StopDetailScreen(
     stopName: String? = null,
     viewModel: StopDetailsViewModel = hiltViewModel(),
     mapViewModel: MapViewModel = hiltViewModel(),
+    stopViewModel: StopViewModel = hiltViewModel(),
     onBack: () -> Unit = {}
 ) {
     TransparentSystemBars()
@@ -74,9 +84,6 @@ fun StopDetailScreen(
     }
 
     val ui by viewModel.uiState.collectAsState()
-
-    // Track bottom sheet animated height so we can hide large imagery when the sheet is collapsed
-    var sheetHeightDp by remember { mutableStateOf(0.dp) }
 
     val ctx = LocalContext.current
 
@@ -103,9 +110,48 @@ fun StopDetailScreen(
     val userLocation by mapViewModel.location.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val listState = rememberLazyListState()
+    val coroutineScope = rememberCoroutineScope()
+    // Keep last map-center triggered fetch time to avoid spamming the server when user pans repeatedly
+    val lastCenterFetchMs = remember { mutableStateOf(0L) }
+    // Keep last cached-fetch time to rate-limit cache reads and UI churn
+    val lastCenterCachedMs = remember { mutableStateOf(0L) }
+    // For scheduling at-most-one pending network fetch when panning rapidly
+    val pendingNetworkFetchTargetMs = remember { mutableStateOf(0L) }
 
     // The stop to display on the map / header
     val selectedStop: Stop? = ui.selectedStop
+
+    // Local immediate highlight id so tapping another stop provides instant visual feedback
+    var immediateHighlightedId by remember { mutableStateOf(selectedStop?.id) }
+
+    // Keep immediateHighlightedId in sync when the authoritative selectedStop changes
+    LaunchedEffect(selectedStop?.id) {
+        immediateHighlightedId = selectedStop?.id
+    }
+
+    // Observe nearby stops from StopViewModel so we can render them on the map.
+    val stopUi by stopViewModel.uiState.collectAsState()
+
+    // When the selected stop is loaded, request nearby stops centered on it so the map
+    // can render other nearby markers. We only trigger this when the selectedStop id or coords change.
+    LaunchedEffect(selectedStop?.id, selectedStop?.latitude, selectedStop?.longitude) {
+        val lat = selectedStop?.latitude
+        val lon = selectedStop?.longitude
+        if (lat != null && lon != null) {
+            try { stopViewModel.loadNearbyStops(stop = "", lat = lat, lon = lon) } catch (_: Throwable) {}
+        }
+    }
+
+    // Build the combined stops list for the map: include the selected stop (highlighted) and
+    // any nearby stops from StopViewModel (deduplicated, using the selected stop as the highlight).
+    val mapStops = remember(selectedStop, stopUi.stops) {
+        val out = mutableListOf<Stop>()
+        selectedStop?.let { out.add(it) }
+        for (s in stopUi.stops) {
+            if (s.id != selectedStop?.id) out.add(s)
+        }
+        out
+    }
 
     // pendingCenterStop is used to request a one-time center-on-stop from the map.
     // OpenStreetMap will call onCenterHandled when it has animated to the stop, at
@@ -122,16 +168,74 @@ fun StopDetailScreen(
         OpenStreetMap(
             modifier = Modifier.fillMaxSize(),
             userLocation = userLocation,
-            stops = if (selectedStop != null) listOf(selectedStop) else emptyList(),
-            onStopClick = { /* no-op in detail screen */ },
-            recenterTrigger = 0,
-            onMapCenterChanged = { _, _ -> /* no-op */ },
+            stops = mapStops,
+            onStopClick = { stop ->
+                // If user taps a different stop while on the detail screen, load its details
+                // and request a one-time center on it. Also kick off nearby stops load immediately.
+                try {
+                    if (stop.id != selectedStop?.id) {
+                        // immediate visual feedback: highlight tapped stop
+                        try { immediateHighlightedId = stop.id } catch (_: Throwable) {}
+                        // Load the new stop details into the StopDetailsViewModel
+                        try { viewModel.loadStopDetails(stop.id) } catch (_: Throwable) {}
+
+                        // Request the map to center on the tapped stop
+                        pendingCenterStop = stop
+
+                        // Immediately request nearby stops for the tapped location to refresh markers
+                        val lat = stop.latitude
+                        val lon = stop.longitude
+                        if (lat != null && lon != null) {
+                            try { stopViewModel.loadNearbyStops(stop = "", lat = lat, lon = lon) } catch (_: Throwable) {}
+                        }
+                    }
+                } catch (_: Throwable) {}
+            },
+             recenterTrigger = 0,
+             onMapCenterChanged = { lat, lon ->
+                val now = System.currentTimeMillis()
+
+                val cachedCooldownMs = 500L
+                val networkCooldownMs = 2_000L
+
+                // 1) Quick cached display (rate-limited to `cachedCooldownMs`)
+                if (now - lastCenterCachedMs.value > cachedCooldownMs) {
+                    lastCenterCachedMs.value = now
+                    try {
+                        stopViewModel.loadCachedNearbyStops(lat, lon)
+                    } catch (_: Throwable) {}
+                }
+
+                // 2) Network fetch: if allowed now, run immediately; otherwise schedule one after cooldown.
+                val sinceLastNetwork = now - lastCenterFetchMs.value
+                if (sinceLastNetwork > networkCooldownMs) {
+                    lastCenterFetchMs.value = now
+                    try { stopViewModel.loadNearbyStops(stop = "", lat = lat, lon = lon) } catch (_: Throwable) {}
+                } else {
+                    // schedule one fetch at time targetMs (only keep latest)
+                    val delayMs = networkCooldownMs - sinceLastNetwork
+                    val targetMs = now + delayMs
+                    pendingNetworkFetchTargetMs.value = targetMs
+                    coroutineScope.launch {
+                        delay(delayMs)
+                        // only run if no newer scheduled fetch replaced this
+                        if (pendingNetworkFetchTargetMs.value == targetMs) {
+                            lastCenterFetchMs.value = System.currentTimeMillis()
+                            try { stopViewModel.loadNearbyStops(stop = "", lat = lat, lon = lon) } catch (_: Throwable) {}
+                            // clear pending marker
+                            pendingNetworkFetchTargetMs.value = 0L
+                        }
+                    }
+                }
+            },
             onVisibleStopIdsChanged = { /* no-op */ },
-            // Pass the one-time pending center request instead of always passing selectedStop.
-            centerOnStop = pendingCenterStop,
-            // When the map handled the center request, clear it so we don't re-center again.
-            onCenterHandled = { pendingCenterStop = null },
-        )
+              // Pass the one-time pending center request instead of always passing selectedStop.
+              centerOnStop = pendingCenterStop,
+             // When the map handled the center request, clear it so we don't re-center again.
+             onCenterHandled = { pendingCenterStop = null },
+            // Highlight the selected stop so it renders with the focused drawable; others will use unfocused drawable.
+            highlightedStopId = immediateHighlightedId,
+         )
 
         BottomSheet(
             modifier = Modifier
@@ -176,13 +280,30 @@ fun StopDetailScreen(
                                 4.dp
                             )
                     )
-                    Row() {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         Text(
                             text = "ID: $headerId",
                             color = Color.White.copy(0.8f),
                             fontSize = 14.sp,
                             modifier = Modifier.fillMaxWidth(),
                             textAlign = TextAlign.Start
+                        )
+                        Icon(
+                            imageVector = Lucide.RefreshCw,
+                            contentDescription = "Refresh",
+                            tint = Color.White.copy(alpha = 0.8f),
+                            modifier = Modifier
+                                .size(28.dp)
+                                .padding(start = 8.dp)
+                                .graphicsLayer { rotationZ = _rotation }
+                                .clickable(enabled = _onRefresh != null && !_isRefreshing && !ui.isLoading) {
+                                    // manual tap should force a refetch
+                                    _onRefresh?.invoke()
+                                }
                         )
                     }
                 }
@@ -272,10 +393,9 @@ fun StopDetailScreen(
                 }
             },
             // In the stop detail screen we want the sheet expanded so arrivals are visible immediately.
-            expanded = true,
-             highlightedStopId = selectedStop?.id,
-            // Track sheet height so callers can react (we'll hide large imagery when small)
-            onHeightChanged = { sheetHeightDp = it }
+            expanded = false,
+            // Track sheet height so callers can react (we'll hide large imagery when small) - currently unused
+            onHeightChanged = {}
          )
 
         SnackbarHost(

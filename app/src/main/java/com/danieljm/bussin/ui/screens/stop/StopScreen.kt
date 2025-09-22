@@ -315,7 +315,9 @@ fun StopScreen(
             },
             // Center request from BottomSheet card taps
             centerOnStop = centerRequestedStop.value,
-            onCenterHandled = { centerRequestedStop.value = null }
+            onCenterHandled = { centerRequestedStop.value = null },
+            // Provide highlighted stop id so the map can render it focused
+            highlightedStopId = highlightedStopId.value
         )
 
         // Top controls overlay: only show the enable-permission button when location isn't enabled.

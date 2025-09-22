@@ -51,6 +51,9 @@ fun OpenStreetMap(
     // caller can clear the request.
     centerOnStop: com.danieljm.bussin.domain.model.Stop? = null,
     onCenterHandled: (() -> Unit)? = null,
+    // Optional: when provided, this stop id will be rendered with the focused drawable while
+    // other stops are rendered with an "unfocused" drawable. Default null preserves previous behavior.
+    highlightedStopId: String? = null,
 ) {
     val composeCtx = LocalContext.current
     val mapViewRef = remember { mutableStateOf<MapView?>(null) }
@@ -294,16 +297,51 @@ fun OpenStreetMap(
                 val lon = stop.longitude
                 if (lat == null || lon == null) return@forEach
 
+                val isHighlighted = sid != null && sid == highlightedStopId
+                val iconRes = if (isHighlighted) com.danieljm.bussin.R.drawable.delijn_stop else com.danieljm.bussin.R.drawable.delijn_stop_unfocused
+
                 val existing = stopMarkers[sid]
                 if (existing != null) {
                     existing.position = GeoPoint(lat, lon)
+                    // update icon in case highlight changed
+                    try {
+                        val ctx = mapView.context
+                        val res = if (highlightedStopId == null) com.danieljm.bussin.R.drawable.delijn_stop else iconRes
+                        val d = ctx.getDrawable(res)
+                        if (d != null) {
+                            // If highlighted, scale up the icon for visibility
+                            if (sid != null && sid == highlightedStopId) {
+                                val scale = 1.6f
+                                val w = (d.intrinsicWidth * scale).toInt().coerceAtLeast(1)
+                                val h = (d.intrinsicHeight * scale).toInt().coerceAtLeast(1)
+                                try { d.setBounds(0, 0, w, h) } catch (_: Throwable) {}
+                            } else {
+                                try { d.setBounds(0, 0, d.intrinsicWidth, d.intrinsicHeight) } catch (_: Throwable) {}
+                            }
+                            existing.icon = d
+                            try { existing.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM) } catch (_: Throwable) {}
+                        }
+                    } catch (_: Throwable) {}
                 } else {
                     try {
                         // create a new marker for this stop
                         val m = Marker(mapView).apply {
                             position = GeoPoint(lat, lon)
-                            // use drawable delijn_stop for stop marker
-                            icon = mapView.context.getDrawable(com.danieljm.bussin.R.drawable.delijn_stop)
+                            // Choose drawable and scale for highlighted marker
+                            val ctx = mapView.context
+                            val finalRes = if (highlightedStopId == null) com.danieljm.bussin.R.drawable.delijn_stop else iconRes
+                            val d = ctx.getDrawable(finalRes)
+                            if (d != null) {
+                                if (sid != null && sid == highlightedStopId) {
+                                    val scale = 1.6f
+                                    val w = (d.intrinsicWidth * scale).toInt().coerceAtLeast(1)
+                                    val h = (d.intrinsicHeight * scale).toInt().coerceAtLeast(1)
+                                    try { d.setBounds(0, 0, w, h) } catch (_: Throwable) {}
+                                } else {
+                                    try { d.setBounds(0, 0, d.intrinsicWidth, d.intrinsicHeight) } catch (_: Throwable) {}
+                                }
+                                icon = d
+                            }
                             title = stop.name
                             setOnMarkerClickListener { _, _ ->
                                 try { Log.d("OpenStreetMap", "marker click for stop=${stop.id}") } catch (_: Throwable) {}
@@ -311,16 +349,29 @@ fun OpenStreetMap(
                                 true
                             }
                         }
+                        try { m.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM) } catch (_: Throwable) {}
                         mapView.overlays.add(m)
-                        stopMarkers[sid] = m
+                        if (sid != null) stopMarkers[sid] = m
                     } catch (_: Throwable) { }
                 }
             }
 
-            // redraw map overlays after sync
-            try { mapView.invalidate() } catch (_: Throwable) { }
-        }
-     )
+            // If a highlighted stop is set, bring its marker to the front so it's drawn above others
+            try {
+                if (highlightedStopId != null) {
+                    val topMarker = stopMarkers[highlightedStopId]
+                    if (topMarker != null) {
+                        // remove and re-add to ensure it's last in overlay list (on top)
+                        try { mapView.overlays.remove(topMarker) } catch (_: Throwable) {}
+                        try { mapView.overlays.add(topMarker) } catch (_: Throwable) {}
+                    }
+                }
+            } catch (_: Throwable) {}
+
+             // redraw map overlays after sync
+             try { mapView.invalidate() } catch (_: Throwable) { }
+         }
+      )
 
     // When parent requests a recenter (counter increment), animate to user's current position once.
     LaunchedEffect(recenterTrigger) {
