@@ -111,6 +111,8 @@ fun StopDetailScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
+    // Trigger for BottomSheet refresh animation; used to enable/animate the refresh icon
+    val refreshAnimRequested = remember { mutableStateOf(false) }
     // Keep last map-center triggered fetch time to avoid spamming the server when user pans repeatedly
     val lastCenterFetchMs = remember { mutableStateOf(0L) }
     // Keep last cached-fetch time to rate-limit cache reads and UI churn
@@ -129,8 +131,61 @@ fun StopDetailScreen(
         immediateHighlightedId = selectedStop?.id
     }
 
+    // Immediate header name to show optimistically when the user taps a stop (cleared when details load)
+    var immediateHeaderName by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(selectedStop?.id) {
+        // clear optimistic header when the authoritative selectedStop changes
+        immediateHeaderName = null
+    }
+
+    // Refresh scheduling: trigger automatic refresh every 20s; manual refresh or selecting a stop resets the timer
+    val refreshTimerToken = remember { mutableStateOf(0L) }
+
+    // Start a coroutine to auto-refresh every 20s for the current selected stop.
+    LaunchedEffect(selectedStop?.id) {
+        // Reset token when selection changes
+        refreshTimerToken.value = System.currentTimeMillis()
+        while (true) {
+            val tokenAtStart = refreshTimerToken.value
+            // wait in one-second chunks so we can early-break when token changes
+            var waited = 0L
+            val interval = 20_000L
+            while (waited < interval) {
+                // if token changed, reset waiting
+                if (refreshTimerToken.value != tokenAtStart) break
+                kotlinx.coroutines.delay(1000L)
+                waited += 1000L
+            }
+            if (refreshTimerToken.value != tokenAtStart) {
+                // timer was reset; start a new wait cycle
+                continue
+            }
+            // time expired: perform a refresh (only if not already loading)
+            try {
+                refreshAnimRequested.value = true
+                val lat = selectedStop?.latitude ?: userLocation?.latitude ?: 50.873322
+                val lon = selectedStop?.longitude ?: userLocation?.longitude ?: 4.525903
+                try { stopViewModel.loadNearbyStops(stop = "", lat = lat, lon = lon) } catch (_: Throwable) {}
+            } catch (_: Throwable) {}
+            // reset token after auto-refresh
+            refreshTimerToken.value = System.currentTimeMillis()
+        }
+    }
+
     // Observe nearby stops from StopViewModel so we can render them on the map.
     val stopUi by stopViewModel.uiState.collectAsState()
+
+    // When nearby stop loading or stop details loading starts, show the refresh animation; when both
+    // loaders are idle, stop the animation. This ensures animation runs while data is being fetched.
+    LaunchedEffect(stopUi.isLoading, ui.isLoading) {
+        try {
+            if (stopUi.isLoading || ui.isLoading) {
+                refreshAnimRequested.value = true
+            } else {
+                refreshAnimRequested.value = false
+            }
+        } catch (_: Throwable) { }
+    }
 
     // When the selected stop is loaded, request nearby stops centered on it so the map
     // can render other nearby markers. We only trigger this when the selectedStop id or coords change.
@@ -176,6 +231,8 @@ fun StopDetailScreen(
                     if (stop.id != selectedStop?.id) {
                         // immediate visual feedback: highlight tapped stop
                         try { immediateHighlightedId = stop.id } catch (_: Throwable) {}
+                        // set optimistic header name so UI updates immediately
+                        try { immediateHeaderName = stop.name } catch (_: Throwable) {}
                         // Load the new stop details into the StopDetailsViewModel
                         try { viewModel.loadStopDetails(stop.id) } catch (_: Throwable) {}
 
@@ -188,6 +245,8 @@ fun StopDetailScreen(
                         if (lat != null && lon != null) {
                             try { stopViewModel.loadNearbyStops(stop = "", lat = lat, lon = lon) } catch (_: Throwable) {}
                         }
+                        // reset the auto-refresh timer because user manually changed focus
+                        refreshTimerToken.value = System.currentTimeMillis()
                     }
                 } catch (_: Throwable) {}
             },
@@ -246,16 +305,22 @@ fun StopDetailScreen(
             userLat = userLocation?.latitude,
             userLon = userLocation?.longitude,
             onStopClick = { /* no-op */ },
-            onRefresh = null,
-            isLoading = ui.isLoading,
-            shouldAnimateRefresh = false,
-            onRefreshAnimationComplete = {},
-            listState = listState,
+            onRefresh = {
+                // Animate the header and trigger a nearby stops reload centered on the selected stop (or fallback)
+                refreshAnimRequested.value = true
+                val lat = selectedStop?.latitude ?: userLocation?.latitude ?: 50.873322
+                val lon = selectedStop?.longitude ?: userLocation?.longitude ?: 4.525903
+                try { stopViewModel.loadNearbyStops(stop = "", lat = lat, lon = lon) } catch (_: Throwable) {}
+            },
+             isLoading = ui.isLoading,
+            shouldAnimateRefresh = refreshAnimRequested.value,
+            onRefreshAnimationComplete = { refreshAnimRequested.value = false },
+             listState = listState,
             scrollToStopId = selectedStop?.id,
             onScrollHandled = null,
             headerContent = { _rotation, _isRefreshing, _onRefresh ->
-                // Prefer the navigation-provided name (stopName), then the loaded stop name, then a hint
-                val headerName = stopName ?: selectedStop?.name ?: "Loading..."
+                // Prefer authoritative selectedStop.name, then optimistic immediateHeaderName, then nav-provided stopName
+                val headerName = selectedStop?.name ?: immediateHeaderName ?: stopName ?: "Loading..."
                 val headerId = selectedStop?.id ?: stopId ?: "-"
 
                 Column(
@@ -280,16 +345,12 @@ fun StopDetailScreen(
                                 4.dp
                             )
                     )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
+                    Row() {
                         Text(
                             text = "ID: $headerId",
                             color = Color.White.copy(0.8f),
                             fontSize = 14.sp,
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier.weight(1f),
                             textAlign = TextAlign.Start
                         )
                         Icon(
@@ -303,6 +364,8 @@ fun StopDetailScreen(
                                 .clickable(enabled = _onRefresh != null && !_isRefreshing && !ui.isLoading) {
                                     // manual tap should force a refetch
                                     _onRefresh?.invoke()
+                                    // reset the auto-refresh timer when user manually refreshes
+                                    refreshTimerToken.value = System.currentTimeMillis()
                                 }
                         )
                     }

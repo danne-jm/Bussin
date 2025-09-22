@@ -116,7 +116,11 @@ fun BusCard(arrival: Arrival, modifier: Modifier = Modifier) {
                             tint = Color.White,
                             modifier = Modifier.size(16.dp)
                         )
-                        Spacer(modifier = Modifier.size(6.dp))
+                        if (
+                            realtimeAvailable
+                        ) {
+                            Spacer(modifier = Modifier.size(6.dp))
+                        }
                         Text(
                             text = if (realtimeAvailable) (arrival.vrtnum ?: "-") else "",
                             color = Color.White,
