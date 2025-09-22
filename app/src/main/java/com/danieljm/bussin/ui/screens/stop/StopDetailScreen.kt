@@ -228,25 +228,23 @@ fun StopDetailScreen(
                 // If user taps a different stop while on the detail screen, load its details
                 // and request a one-time center on it. Also kick off nearby stops load immediately.
                 try {
-                    if (stop.id != selectedStop?.id) {
-                        // immediate visual feedback: highlight tapped stop
-                        try { immediateHighlightedId = stop.id } catch (_: Throwable) {}
-                        // set optimistic header name so UI updates immediately
-                        try { immediateHeaderName = stop.name } catch (_: Throwable) {}
-                        // Load the new stop details into the StopDetailsViewModel
-                        try { viewModel.loadStopDetails(stop.id) } catch (_: Throwable) {}
+                    // immediate visual feedback: highlight tapped stop
+                    try { immediateHighlightedId = stop.id } catch (_: Throwable) {}
+                    // set optimistic header name so UI updates immediately
+                    try { immediateHeaderName = stop.name } catch (_: Throwable) {}
+                    // Load the new stop details into the StopDetailsViewModel
+                    try { viewModel.loadStopDetails(stop.id) } catch (_: Throwable) {}
 
-                        // Request the map to center on the tapped stop
-                        pendingCenterStop = stop
+                    // Request the map to center on the tapped stop
+                    pendingCenterStop = stop
 
-                        // Immediately request nearby stops for the tapped location to refresh markers
-                        val lat = stop.latitude
-                        val lon = stop.longitude
-                        if (lat != null && lon != null) {
-                            try { stopViewModel.loadNearbyStops(stop = "", lat = lat, lon = lon) } catch (_: Throwable) {}
-                            // reset the auto-refresh timer because user manually changed focus
-                            lastRefreshExecutedMs.value = System.currentTimeMillis()
-                        }
+                    // Immediately request nearby stops for the tapped location to refresh markers
+                    val lat = stop.latitude
+                    val lon = stop.longitude
+                    if (lat != null && lon != null) {
+                        try { stopViewModel.loadNearbyStops(stop = "", lat = lat, lon = lon) } catch (_: Throwable) {}
+                        // reset the auto-refresh timer because user manually changed focus
+                        lastRefreshExecutedMs.value = System.currentTimeMillis()
                     }
                 } catch (_: Throwable) {}
             },
