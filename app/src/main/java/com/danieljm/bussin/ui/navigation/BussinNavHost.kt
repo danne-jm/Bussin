@@ -4,8 +4,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalView
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -16,9 +18,10 @@ import com.danieljm.bussin.ui.screens.more.MoreScreen
 import com.danieljm.bussin.ui.screens.plan.PlanScreen
 import com.danieljm.bussin.ui.screens.stop.StopScreen
 import com.danieljm.bussin.ui.screens.stopdetails.StopDetailsScreen
-import com.danieljm.bussin.ui.theme.DarkSystemBars
+import com.danieljm.bussin.ui.theme.DarkStatusBar
 import com.danieljm.bussin.ui.theme.TransparentSystemBars
 import java.net.URLDecoder
+import android.graphics.Color as AndroidColor
 
 @Composable
 fun BussinNavHost(
@@ -27,13 +30,29 @@ fun BussinNavHost(
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
 
-    // Centralized system bar control so Scaffold and bottomBar behave correctly when
-    // navigating to routes that require edge-to-edge content (map screens).
-    val isEdgeToEdgeRoute = currentRoute == NavRoutes.STOPS || (currentRoute?.contains(NavRoutes.STOP_DETAILS) == true)
-    if (isEdgeToEdgeRoute) {
+    // Make the status bar transparent for stop-related screens (map) and dark for all other screens.
+    val isStopRoute = currentRoute == NavRoutes.STOPS || (currentRoute?.contains(NavRoutes.STOP_DETAILS) == true)
+    if (isStopRoute) {
         TransparentSystemBars()
     } else {
-        DarkSystemBars()
+        DarkStatusBar()
+    }
+
+    // Strong fallback: directly set the Activity window colors per-route so we reliably
+    // enforce the expected status bar color across OEMs and Android versions.
+    val view = LocalView.current
+    SideEffect {
+        try {
+            val window = (view.context as android.app.Activity).window
+            if (isStopRoute) {
+                window.statusBarColor = AndroidColor.TRANSPARENT
+                // keep nav bar dark
+                window.navigationBarColor = AndroidColor.parseColor("#1D2124")
+            } else {
+                window.statusBarColor = AndroidColor.parseColor("#1D2124")
+                window.navigationBarColor = AndroidColor.parseColor("#1D2124")
+            }
+        } catch (_: Throwable) {}
     }
 
     Scaffold(

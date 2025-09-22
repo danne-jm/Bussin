@@ -422,13 +422,13 @@ fun StopDetailScreen(
                                     Box(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .height(240.dp),
+                                            .height(120.dp),
                                         contentAlignment = Alignment.Center
                                     ) {
                                         Image(
                                             painter = painterResource(id = com.danieljm.bussin.R.drawable.sleeping_bus),
                                             contentDescription = "No arrivals",
-                                            modifier = Modifier.size(160.dp)
+                                            modifier = Modifier.size(180.dp)
                                         )
                                     }
                                 }
