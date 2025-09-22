@@ -112,6 +112,8 @@ fun StopDetailScreen(
     val coroutineScope = rememberCoroutineScope()
     // Trigger for BottomSheet refresh animation; used to enable/animate the refresh icon
     val refreshAnimRequested = remember { mutableStateOf(false) }
+    val minAnimationDurationMs = 1000L // Minimum 1 second animation
+    val animationStartTime = remember { mutableStateOf(0L) }
     // Keep last map-center triggered fetch time to avoid spamming the server when user pans repeatedly
     val lastCenterFetchMs = remember { mutableStateOf(0L) }
     // Keep last cached-fetch time to rate-limit cache reads and UI churn
@@ -156,12 +158,11 @@ fun StopDetailScreen(
             val elapsed = now - lastRefreshExecutedMs.value
             val interval = 20_000L
             if (elapsed >= interval) {
-                // Only auto-trigger when no loaders are currently active to avoid overlapping requests.
-                if (!(stopUi.isLoading || ui.isLoading)) {
+                // Only auto-trigger when arrivals are not currently loading to avoid overlapping requests.
+                if (!ui.arrivalsLoading) {
                     try {
-                        val lat = selectedStop?.latitude ?: userLocation?.latitude ?: 50.873322
-                        val lon = selectedStop?.longitude ?: userLocation?.longitude ?: 4.525903
-                        try { stopViewModel.loadNearbyStops(stop = "", lat = lat, lon = lon, force = true) } catch (_: Throwable) {}
+                        viewModel.refreshArrivals()
+                        refreshAnimRequested.value = true
                     } catch (_: Throwable) {}
                     // update last executed time to now so the next auto-refresh waits again
                     lastRefreshExecutedMs.value = System.currentTimeMillis()
@@ -176,8 +177,23 @@ fun StopDetailScreen(
     // loaders are idle, stop the animation. This ensures animation runs while data is being fetched.
     LaunchedEffect(ui.arrivalsLoading) {
         try {
-            refreshAnimRequested.value = ui.arrivalsLoading
+            if (ui.arrivalsLoading) {
+                refreshAnimRequested.value = true
+                animationStartTime.value = System.currentTimeMillis()
+            }
         } catch (_: Throwable) { }
+    }
+
+    // Control refresh animation stopping: only stop after loading is complete AND minimum animation duration has passed.
+    LaunchedEffect(ui.arrivalsLoading, animationStartTime.value) {
+        if (!ui.arrivalsLoading && refreshAnimRequested.value) {
+            val elapsed = System.currentTimeMillis() - animationStartTime.value
+            val remainingDelay = (minAnimationDurationMs - elapsed).coerceAtLeast(0L)
+            if (remainingDelay > 0) {
+                delay(remainingDelay)
+            }
+            refreshAnimRequested.value = false
+        }
     }
 
     // When the selected stop is loaded, request nearby stops centered on it so the map
@@ -314,7 +330,7 @@ fun StopDetailScreen(
             },
              isLoading = ui.arrivalsLoading,
             shouldAnimateRefresh = refreshAnimRequested.value,
-            onRefreshAnimationComplete = { refreshAnimRequested.value = false },
+            onRefreshAnimationComplete = { /* Handled by external LaunchedEffect */ },
              listState = listState,
             scrollToStopId = selectedStop?.id,
             onScrollHandled = null,
