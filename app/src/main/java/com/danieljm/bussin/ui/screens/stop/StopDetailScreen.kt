@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Icon
@@ -52,6 +53,7 @@ import com.danieljm.bussin.domain.model.Stop
 import com.danieljm.bussin.ui.components.map.MapViewModel
 import com.danieljm.bussin.ui.components.map.OpenStreetMap
 import com.danieljm.bussin.ui.components.stopdetails.BusCard
+import com.danieljm.bussin.ui.components.stopdetails.LineBadge
 import com.danieljm.bussin.ui.screens.stopdetails.StopDetailsViewModel
 import com.danieljm.delijn.ui.components.stops.BottomSheet
 import kotlinx.coroutines.delay
@@ -384,6 +386,20 @@ fun StopDetailScreen(
                                     lastRefreshExecutedMs.value = System.currentTimeMillis()
                                 }
                         )
+                    }
+
+                    // Show a row of unique line badges (same visuals as in BusCard) below the ID/refresh row
+                    val uniqueArrivals = ui.arrivals.distinctBy { it.lijnNummerPubliek ?: it.lijnnummer ?: "-" }
+                    if (uniqueArrivals.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            items(uniqueArrivals) { arrivalItem ->
+                                LineBadge(arrival = arrivalItem)
+                            }
+                        }
                     }
                 }
             },

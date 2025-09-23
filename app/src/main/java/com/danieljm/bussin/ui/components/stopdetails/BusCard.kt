@@ -2,9 +2,7 @@ package com.danieljm.bussin.ui.components.stopdetails
 
 import android.util.Log
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -26,7 +24,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.graphics.toColorInt
 import com.composables.icons.lucide.Bus
 import com.composables.icons.lucide.BusFront
 import com.composables.icons.lucide.CloudOff
@@ -41,35 +38,6 @@ fun BusCard(arrival: Arrival, modifier: Modifier = Modifier) {
         "BusCard",
         "Rendering BusCard: lineEnt=${arrival.entiteitnummer}, linePub=${arrival.lijnNummerPubliek}, lineBg=${arrival.lijnKleurAchterGrond}"
     )
-
-    // Determine badge background color from hex if available, else fallback to green
-    val lineBgColor: Color = try {
-        arrival.lijnKleurAchterGrond?.let { hex ->
-            Color(hex.toColorInt())
-        } ?: Color(0xFF4CAF50)
-    } catch (_: Exception) {
-        Log.w("BusCard", "Failed to parse badge color: ${arrival.lijnKleurAchterGrond}")
-        Color(0xFF4CAF50)
-    }
-
-    val lineBadgeText = arrival.lijnNummerPubliek ?: arrival.lijnnummer ?: "-"
-
-    val lineBadgeTextColor: Color = try {
-        arrival.lijnKleurVoorGrond?.let { hex ->
-            Color(hex.toColorInt())
-        } ?: Color.Black
-    } catch (_: Exception) {
-        Color.Black
-    }
-
-    val borderModifier = arrival.lijnKleurAchterGrondRand?.let { hex ->
-        try {
-            val parsed = Color(hex.toColorInt())
-            Modifier.border(width = 2.dp, color = parsed, shape = RoundedCornerShape(8.dp))
-        } catch (_: Exception) {
-            Modifier
-        }
-    } ?: Modifier
 
     val realtimeAvailable = arrival.realArrivalMillis > 0L
 
@@ -101,20 +69,7 @@ fun BusCard(arrival: Arrival, modifier: Modifier = Modifier) {
                     )
                     Spacer(modifier = Modifier.size(4.dp))
                     // Line badge with optional border
-                    Box(modifier = borderModifier) {
-                        Box(
-                            modifier = Modifier
-                                .background(lineBgColor, shape = RoundedCornerShape(8.dp))
-                                .padding(horizontal = 10.dp, vertical = 6.dp)
-                        ) {
-                            Text(
-                                text = lineBadgeText,
-                                color = lineBadgeTextColor,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 18.sp
-                            )
-                        }
-                    }
+                    LineBadge(arrival = arrival)
 
                     Spacer(modifier = Modifier.size(12.dp))
 
